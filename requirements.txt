@@ -1,0 +1,9 @@
+neonize
+openai
+anthropic
+dotenv
+
+# For SOCKS proxy support in httpx (error: missing socksio)
+socksio
+httpx[socks]
+#pip install "httpx[socks]"
