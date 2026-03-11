@@ -68,21 +68,21 @@ class CLIChannel(Channel):
         return True
 
 
-class ChannelManager:
-    def __init__(self) -> None:
-        self.channels: dict[str, Channel] = {}
-        self.accounts: list[ChannelAccount] = []
+# class ChannelManager:
+#     def __init__(self) -> None:
+#         self.channels: dict[str, Channel] = {}
+#         self.accounts: list[ChannelAccount] = []
 
-    def register(self, channel: Channel) -> None:
-        self.channels[channel.name] = channel
-        print_channel(f"  [+] Channel registered: {channel.name}")
+#     def register(self, channel: Channel) -> None:
+#         self.channels[channel.name] = channel
+#         print_channel(f"  [+] Channel registered: {channel.name}")
 
-    def list_channels(self) -> list[str]:
-        return list(self.channels.keys())
+#     def list_channels(self) -> list[str]:
+#         return list(self.channels.keys())
 
-    def get(self, name: str) -> Channel | None:
-        return self.channels.get(name)
+#     def get(self, name: str) -> Channel | None:
+#         return self.channels.get(name)
 
-    def close_all(self) -> None:
-        for ch in self.channels.values():
-            ch.close()
+#     def close_all(self) -> None:
+#         for ch in self.channels.values():
+#             ch.close()

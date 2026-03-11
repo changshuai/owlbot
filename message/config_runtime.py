@@ -3,21 +3,14 @@ from pathlib import Path
 from typing import Any, Tuple, List
 
 from common.paths import WORKSPACE_DIR
-from dispatch.agent_manager import AgentManager, BindingTable, AgentConfig, Binding
-from channels.types_ import ChannelAccount
+from message.agent_ import AgentManager, Agent
+from message.route_ import BindingTable, AgentManager, Agent, Binding
+from channels.types_ import ChannelAccount, ChannelAccount
 
+from message.route_ import BindingTable, AgentManager, Agent, Binding
+from .route_ import BindingTable, AgentManager, DEFAULT_AGENT_ID, build_session_key, normalize_agent_id
 
 CONFIG_PATH = WORKSPACE_DIR / "runtime_config.json"
-
-
-def _load_raw() -> dict | None:
-    if not CONFIG_PATH.exists():
-        return None
-    try:
-        return json.loads(CONFIG_PATH.read_text(encoding="utf-8"))
-    except Exception:
-        return None
-
 
 def setup_from_config() -> Tuple[AgentManager, BindingTable, List[ChannelAccount]] | None:
     """
@@ -49,7 +42,7 @@ def setup_from_config() -> Tuple[AgentManager, BindingTable, List[ChannelAccount
       "auto_bridge": ["whatsapp_web"]
     }
     """
-    raw = _load_raw()
+    raw = json.loads(CONFIG_PATH.read_text(encoding="utf-8"))
     if not raw:
         return None
 
@@ -57,7 +50,7 @@ def setup_from_config() -> Tuple[AgentManager, BindingTable, List[ChannelAccount
     bt = BindingTable()
 
     for a in raw.get("agents", []):
-        mgr.register(AgentConfig(
+        mgr.register(Agent(
             id=a.get("id", "main"),
             name=a.get("name", "Main"),
             personality=a.get("personality", ""),

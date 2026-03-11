@@ -1,16 +1,11 @@
-from .agent_manager import (
+from .route_ import (
     Binding,
     BindingTable,
     AgentManager,
-    DEFAULT_AGENT_ID,
     build_session_key,
     normalize_agent_id,
-    DIM,
-    RESET,
-    RED,
-    GREEN,
 )
-from .agent_manager import resolve_route
+from .route_ import resolve_route
 from .agent_loop import run_agent
 import json, asyncio, time, logging
 from typing import Any, Dict, List, Optional
@@ -64,7 +59,7 @@ class GatewayServer:
         self._clients.add(ws)
         try:
             async for raw in ws:
-                resp = await self._dispatch(raw)
+                resp = await self._message(raw)
                 if resp:
                     await ws.send(json.dumps(resp))
         except Exception as exc:
@@ -81,7 +76,7 @@ class GatewayServer:
             except Exception:
                 self._clients.discard(ws)
 
-    async def _dispatch(self, raw: str) -> dict | None:
+    async def _message(self, raw: str) -> dict | None:
         try:
             req = json.loads(raw)
         except json.JSONDecodeError:
@@ -112,7 +107,7 @@ class GatewayServer:
                                    dm_scope=a.dm_scope if a else "per-peer")
         else:
             aid, sk = resolve_route(self._bindings, self._mgr, ch, pid)
-        reply = await run_agent(self._mgr, aid, sk, text, on_typing=self._typing_cb)
+        reply = await run_agent(self._mgr, aid, sk, text, on_typing=self._typing_cb, channel=ch)
         return {"agent_id": aid, "session_key": sk, "reply": reply}
 
     async def _m_bind_set(self, p: dict) -> dict:

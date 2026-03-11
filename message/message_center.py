@@ -12,7 +12,8 @@ import threading
 from typing import Callable, List
 
 from channels.types_ import Channel, InboundMessage
-from .agent_manager import AgentManager, BindingTable, resolve_route
+from .route_ import AgentManager, BindingTable, resolve_route
+from .agent_ import Agent, AgentManager
 from .agent_loop import run_agent
 
 logger = logging.getLogger(__name__)
@@ -24,7 +25,7 @@ def run_async(coro):
     return asyncio.run(coro)
 
 
-class ChannelBridge:
+class MessageCenter:
     """
     Polls a list of channels; for each InboundMessage, resolves agent via bindings,
     runs the agent, and sends the reply back to the channel. Only processes messages
@@ -37,7 +38,7 @@ class ChannelBridge:
         bindings: BindingTable,
         channels: List[Channel],
         run_async_fn: Callable | None = None,
-        poll_interval: float = 0.5,
+        poll_interval: float = 3.0,
     ) -> None:
         self._mgr = mgr
         self._bindings = bindings
@@ -65,17 +66,29 @@ class ChannelBridge:
         import time
         while not self._stop.is_set():
             for ch in self._channels:
-                try:
-                    msg = ch.receive()
-                except Exception as e:
-                    logger.debug("channel %s receive error: %s", getattr(ch, "name", ch), e)
-                    continue
-                if not msg or not isinstance(msg, InboundMessage):
-                    continue
-                self._handle(msg, ch)
+                self.dispatch(ch)
             time.sleep(self._poll_interval)
 
-    def _handle(self, msg: InboundMessage, ch: Channel) -> None:
+    def dispatch(self, ch: Channel) -> None:
+        """
+        Poll one channel once: receive a message (if any) and handle it.
+        Used by the background loop; CLI can call handle_message() directly.
+        """
+        try:
+            msg = ch.receive()
+        except Exception as e:
+            logger.debug("channel %s receive error: %s", getattr(ch, "name", ch), e)
+            return
+        if not msg or not isinstance(msg, InboundMessage):
+            return
+
+        self.handle_message(msg, ch)
+
+    def handle_message(self, msg: InboundMessage, ch: Channel) -> None:
+        """
+        Core dispatch logic for a single already-received InboundMessage.
+        This is reusable from CLI or tests without going through receive().
+        """
         try:
             agent_id, session_key = resolve_route(
                 self._bindings,
@@ -90,7 +103,7 @@ class ChannelBridge:
             )
             ch.send(msg.peer_id, reply or "")
         except Exception as e:
-            logger.exception("ChannelBridge handle %s: %s", msg.peer_id, e)
+            logger.exception("MessageDispatcher dispatch %s: %s", msg.peer_id, e)
             try:
                 ch.send(msg.peer_id, f"Error: {e}")
             except Exception:

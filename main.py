@@ -1,13 +1,16 @@
 import asyncio, sys, threading
-from dispatch.agent_manager import BindingTable, AgentManager, DEFAULT_AGENT_ID, build_session_key, normalize_agent_id
+from message.route_ import BindingTable, AgentManager, DEFAULT_AGENT_ID, build_session_key, normalize_agent_id
 from common.colors import DIM, RESET, BOLD, CYAN, GREEN, YELLOW, MAGENTA, BLUE, RED
-from dispatch.agent_manager import AgentManager, setup_demo
-from dispatch.agent_loop import run_agent
+from message.route_ import setup_demo
+from message.agent_loop import run_agent
 from LLMs import get_env_api_key
-from dispatch.agent_manager import resolve_route
-from dispatch.agent_loop import MODEL_PROVIDER, MODEL_ID
-from dispatch.gateway import GatewayServer
-from dispatch.config_runtime import setup_from_config, write_simple_default
+from message.route_ import resolve_route
+from message.agent_loop import MODEL_PROVIDER, MODEL_ID
+from message.gateway import GatewayServer
+from message.config_runtime import setup_from_config as setup_from_runtime_config, write_simple_default
+from channels.channel_manager import ChannelManager
+from channels.types_ import ChannelAccount, InboundMessage, CLIChannel
+from message.message_center import MessageCenter
 
 _event_loop: asyncio.AbstractEventLoop | None = None
 _loop_thread: threading.Thread | None = None
@@ -76,9 +79,10 @@ def cmd_sessions(mgr: AgentManager) -> None:
     print()
 
 
+
 def repl() -> None:
     # 如果有 runtime_config.json，就优先按配置启动；否则用 demo 配置并写一份简单模板
-    cfg = setup_from_config()
+    cfg = setup_from_runtime_config()
     if cfg:
         mgr, bindings, auto_accounts = cfg
     else:
@@ -86,34 +90,23 @@ def repl() -> None:
         auto_accounts = []
         write_simple_default()
     print(f"{DIM}{'=' * 64}{RESET}")
-    print(f"{DIM}  claw0  |  Section 05: Gateway & Routing{RESET}")
-    print(f"{DIM}  Model: {MODEL_PROVIDER}/{MODEL_ID}{RESET}")
-    print(f"{DIM}{'=' * 64}{RESET}")
-    print(f"{DIM}  /bindings  /route <ch> <peer>  /agents  /sessions  /switch <id>  /gateway  /bridge [whatsapp_web]{RESET}")
+    print(f"{DIM}  /bindings  /route <ch> <peer>  /agents  /sessions /gateway{RESET}")
     print()
 
-    ch, pid = "cli", "repl-user"
-    force_agent = ""
     gw_started = False
-    bridge_started = False
 
-    # 根据配置自动启动 bridge（如 whatsapp_web）
+    # 根据配置自动启动 bridge（如 whatsapp_web / cli）
     if auto_accounts:
-        from dispatch.channel_bridge import ChannelBridge
-        channels_to_bridge = []
-        for acc in auto_accounts:
-            if acc.channel == "whatsapp_web":
-                try:
-                    from channels.whatsapp_web import WhatsAppWebChannel
-                    wa = WhatsAppWebChannel(acc)
-                    channels_to_bridge.append(wa)
-                except Exception as e:
-                    print(f"  {RED}Auto bridge whatsapp_web failed: {e}{RESET}")
+        ch_mgr = ChannelManager()
+        channels_to_bridge = ch_mgr.build_from_accounts(auto_accounts)
         if channels_to_bridge:
-            bridge = ChannelBridge(mgr, bindings, channels_to_bridge, run_async_fn=run_async)
+            bridge = MessageCenter(mgr, bindings, channels_to_bridge, run_async_fn=run_async)
             bridge.start()
-            bridge_started = True
             print(f"{GREEN}Auto bridge started for: {[a.channel for a in auto_accounts]}{RESET}")
+
+    # CLI 也通过 MessageDispatcher 走同一套逻辑，只是输入循环在这里控制
+    cli_channel = CLIChannel()
+    cli_dispatcher = MessageCenter(mgr, bindings, [cli_channel], run_async_fn=run_async)
 
     while True:
         try:
@@ -136,19 +129,6 @@ def repl() -> None:
                 cmd_agents(mgr)
             elif cmd == "/sessions":
                 cmd_sessions(mgr)
-            elif cmd == "/switch":
-                if not args:
-                    print(f"  {DIM}force={force_agent or '(off)'}{RESET}")
-                elif args.lower() == "off":
-                    force_agent = ""
-                    print(f"  {DIM}Routing mode restored.{RESET}")
-                else:
-                    aid = normalize_agent_id(args)
-                    if mgr.get_agent(aid):
-                        force_agent = aid
-                        print(f"  {GREEN}Forcing: {aid}{RESET}")
-                    else:
-                        print(f"  {YELLOW}Not found: {aid}{RESET}")
             elif cmd == "/gateway":
                 if gw_started:
                     print(f"  {DIM}Already running.{RESET}")
@@ -157,53 +137,22 @@ def repl() -> None:
                     asyncio.run_coroutine_threadsafe(gw.start(), get_event_loop())
                     print(f"{GREEN}Gateway running in background on ws://localhost:8765{RESET}\n")
                     gw_started = True
-            elif cmd == "/bridge":
-                if bridge_started:
-                    print(f"  {DIM}Bridge already running.{RESET}")
-                else:
-                    channels_to_bridge = []
-                    if args.strip().lower() == "whatsapp_web":
-                        try:
-                            from channels.whatsapp_web import WhatsAppWebChannel
-                            from channels.types_ import ChannelAccount
-                            acc = ChannelAccount(channel="whatsapp_web", account_id="wa-default", token="", config={})
-                            wa = WhatsAppWebChannel(acc)
-                            channels_to_bridge.append(wa)
-                        except Exception as e:
-                            import sys
-                            print(f"  {RED}WhatsApp Web channel failed: {e}{RESET}")
-                            print(f"  {DIM}Using Python: {sys.executable}{RESET}")
-                            print(f"  {DIM}Use the env with whatsapp-web-py (e.g. conda activate owlbot), then run this script with that Python.{RESET}")
-                            print(f"  {DIM}Or use WhatsApp Cloud API: channels/whatsapp.py (no QR).{RESET}")
-                    if channels_to_bridge:
-                        from dispatch.channel_bridge import ChannelBridge
-                        bridge = ChannelBridge(mgr, bindings, channels_to_bridge, run_async_fn=run_async)
-                        bridge.start()
-                        bridge_started = True
-                        print(f"{GREEN}Channel bridge started (poll → agent → reply). Scan QR if WhatsApp Web shows it.{RESET}\n")
-                    else:
-                        print(f"  {YELLOW}Usage: /bridge whatsapp_web{RESET}")
             else:
                 print(f"  {YELLOW}Unknown: {cmd}{RESET}")
             continue
 
-        if force_agent:
-            agent_id = force_agent
-            a = mgr.get_agent(agent_id)
-            session_key = build_session_key(agent_id, channel=ch, peer_id=pid,
-                                            dm_scope=a.dm_scope if a else "per-peer")
-        else:
-            agent_id, session_key = resolve_route(bindings, mgr, channel=ch, peer_id=pid)
-
-        agent = mgr.get_agent(agent_id)
-        name = agent.name if agent else agent_id
-        print(f"  {DIM}-> {name} ({agent_id}) | {session_key}{RESET}")
-
+        # 普通文本输入：构造 InboundMessage，复用 MessageDispatcher 的 dispatch 逻辑
+        msg = InboundMessage(
+            text=user_input,
+            sender_id="cli-user",
+            channel="cli",
+            account_id=cli_channel.account_id,
+            peer_id="cli-user",
+        )
         try:
-            reply = run_async(run_agent(mgr, agent_id, session_key, user_input))
+            cli_dispatcher.handle_message(msg, cli_channel)
         except Exception as exc:
-            print(f"\n{RED}Error: {exc}{RESET}\n"); continue
-        print(f"\n{GREEN}{BOLD}{name}:{RESET} {reply}\n")
+            print(f"\n{RED}Error: {exc}{RESET}\n")
 
 # ---------------------------------------------------------------------------
 # Entry Point

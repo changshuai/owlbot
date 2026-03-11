@@ -12,7 +12,7 @@ from http.server import HTTPServer, BaseHTTPRequestHandler
 from urllib.parse import parse_qs
 
 from common.paths import STATE_DIR
-from dispatch.config_runtime import CONFIG_PATH
+from message.config_runtime import CONFIG_PATH
 
 
 # 用普通字符串存 HTML，发送时再按 UTF-8 编码，避免 bytes 字面量中出现中文导致语法错误。

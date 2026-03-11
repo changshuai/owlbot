@@ -8,7 +8,7 @@ import json
 
 from common.paths import WORKSPACE_DIR, STATE_DIR
 
-from dispatch.config_runtime import CONFIG_PATH
+from message.config_runtime import CONFIG_PATH
 
 
 def ask(prompt: str, default: str = "") -> str:

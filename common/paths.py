@@ -12,3 +12,10 @@ PLAN_FILE = WORKSPACE_DIR / "PLAN.md"
 REFLECTION_FILE = WORKSPACE_DIR / "REFLECTION.md"
 
 WORKSPACE_DIR.mkdir(parents=True, exist_ok=True)
+
+
+def get_agent_workspace(agent_id: str) -> Path:
+    """Return per-agent workspace dir (created by AgentManager.register)."""
+    ws = WORKSPACE_DIR / f"workspace-{agent_id}"
+    ws.mkdir(parents=True, exist_ok=True)
+    return ws

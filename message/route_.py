@@ -6,27 +6,11 @@ from common.colors import CYAN, GREEN, YELLOW, DIM, RESET, BOLD, MAGENTA, RED, B
 from common.paths import PROJECT_ROOT, WORKSPACE_DIR, AGENTS_DIR
 from dotenv import load_dotenv
 import sys
-import re
+from .agent_ import Agent, normalize_agent_id, AgentManager, DEFAULT_AGENT_ID
 
 if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 load_dotenv(PROJECT_ROOT / ".env", override=True)
-
-
-## Valid ID Regex
-VALID_ID_RE = re.compile(r"^[a-z0-9][a-z0-9_-]{0,63}$")
-INVALID_CHARS_RE = re.compile(r"[^a-z0-9_-]+")
-DEFAULT_AGENT_ID = "main"
-
-
-def normalize_agent_id(value: str) -> str:
-    trimmed = value.strip()
-    if not trimmed:
-        return DEFAULT_AGENT_ID
-    if VALID_ID_RE.match(trimmed):
-        return trimmed.lower()
-    cleaned = INVALID_CHARS_RE.sub("-", trimmed.lower()).strip("-")[:64]
-    return cleaned or DEFAULT_AGENT_ID
 
 # ---------------------------------------------------------------------------
 # Binding: 5-Tier Route Resolution
@@ -113,62 +97,6 @@ def build_session_key(agent_id: str, channel: str = "", account_id: str = "",
         return f"agent:{aid}:direct:{pid}"
     return f"agent:{aid}:main"
 
-# ---------------------------------------------------------------------------
-# Agent Config & Manager
-# ---------------------------------------------------------------------------
-
-@dataclass
-class AgentConfig:
-    id: str
-    name: str
-    personality: str = ""
-    model: str = ""
-    dm_scope: str = "per-peer"
-    tools: list[Any] = field(default_factory=list)
-    skills: list[Any] = field(default_factory=list)
-    soul: str = ""
-
-    @property
-    def effective_model(self) -> str:
-        return self.model or "deepseek/deepseek-chat"
-
-    def system_prompt(self) -> str:
-        parts = [f"You are {self.name}."]
-        if self.personality:
-            parts.append(f"Your personality: {self.personality}")
-        parts.append("Answer questions helpfully and stay in character.")
-        return " ".join(parts)
-
-class AgentManager:
-    def __init__(self, agents_base: Path | None = None) -> None:
-        self._agents: dict[str, AgentConfig] = {}
-        self._agents_base = agents_base or AGENTS_DIR
-        self._sessions: dict[str, list[dict]] = {}
-
-    def register(self, config: AgentConfig) -> None:
-        aid = normalize_agent_id(config.id)
-        config.id = aid
-        self._agents[aid] = config
-        agent_dir = self._agents_base / aid
-        (agent_dir / "sessions").mkdir(parents=True, exist_ok=True)
-        (WORKSPACE_DIR / f"workspace-{aid}").mkdir(parents=True, exist_ok=True)
-
-    def get_agent(self, agent_id: str) -> AgentConfig | None:
-        return self._agents.get(normalize_agent_id(agent_id))
-
-    def list_agents(self) -> list[AgentConfig]:
-        return list(self._agents.values())
-
-    def get_session(self, session_key: str) -> list[dict]:
-        if session_key not in self._sessions:
-            self._sessions[session_key] = []
-        return self._sessions[session_key]
-
-    def list_sessions(self, agent_id: str = "") -> dict[str, int]:
-        aid = normalize_agent_id(agent_id) if agent_id else ""
-        return {k: len(v) for k, v in self._sessions.items()
-                if not aid or k.startswith(f"agent:{aid}:")}
-
 
 def resolve_route(bindings: BindingTable, mgr: AgentManager,
                   channel: str, peer_id: str,
@@ -191,13 +119,12 @@ def resolve_route(bindings: BindingTable, mgr: AgentManager,
 
 def setup_demo() -> tuple[AgentManager, BindingTable]:
     mgr = AgentManager()
-    mgr.register(AgentConfig(
+    mgr.register(Agent(
         id="luna", name="Luna",
         personality="warm, curious, and encouraging. You love asking follow-up questions.",
     ))
-    ## Agent should config the tools and skills and soul here. It will show the agent more clearly.
 
-    mgr.register(AgentConfig(
+    mgr.register(Agent(
         id="sage", name="Sage",
         personality="direct, analytical, and concise. You prefer facts over opinions.",
     ))
