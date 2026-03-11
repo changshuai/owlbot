@@ -3,14 +3,14 @@ from __future__ import annotations
 from typing import Callable, Dict, List
 import logging
 
-from .types_ import Channel, ChannelAccount
+from .types_ import Channel, ChannelConfig
 
 logger = logging.getLogger(__name__)
 
 
 class ChannelManager:
     """
-    ChannelManager: build and manage concrete Channel instances from ChannelAccount configs.
+    ChannelManager: build and manage concrete Channel instances from ChannelConfig configs.
 
     用法示例（结合 message.config_runtime.setup_from_config）:
 
@@ -27,8 +27,8 @@ class ChannelManager:
     """
 
     def __init__(self) -> None:
-        # channel_type -> factory(ChannelAccount) -> Channel
-        self._factories: Dict[str, Callable[[ChannelAccount], Channel]] = {}
+        # channel_type -> factory(ChannelConfig) -> Channel
+        self._factories: Dict[str, Callable[[ChannelConfig], Channel]] = {}
         self._channels: List[Channel] = []
 
     # ------------------------------------------------------------------
@@ -37,7 +37,7 @@ class ChannelManager:
     def register_factory(
         self,
         channel_type: str,
-        factory: Callable[[ChannelAccount], Channel],
+        factory: Callable[[ChannelConfig], Channel],
     ) -> None:
         """Register a factory for a given channel type string (e.g. 'whatsapp_web')."""
         self._factories[channel_type] = factory
@@ -56,14 +56,14 @@ class ChannelManager:
             "cli",
         }
 
-        # CLI channel: purely local stdin/stdout, does not need ChannelAccount
+        # CLI channel: purely local stdin/stdout, does not need ChannelConfig
         if "cli" in wanted:
             try:
                 from .types_ import CLIChannel
             except Exception as exc:  # pragma: no cover
                 logger.debug("CLIChannel not available: %s", exc)
             else:
-                # ignore ChannelAccount, CLIChannel is process-local
+                # ignore ChannelConfig, CLIChannel is process-local
                 self.register_factory("cli", lambda _acc: CLIChannel())
 
         if "whatsapp" in wanted:
@@ -90,9 +90,9 @@ class ChannelManager:
         """Return the list of instantiated channels."""
         return list(self._channels)
 
-    def build_from_accounts(self, accounts: List[ChannelAccount]) -> List[Channel]:
+    def build_from_accounts(self, accounts: List[ChannelConfig]) -> List[Channel]:
         """
-        Given a list of ChannelAccount configs, register needed factories
+        Given a list of ChannelConfig configs, register needed factories
         and construct Channel instances.
 
         步骤：

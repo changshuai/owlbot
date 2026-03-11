@@ -15,7 +15,7 @@ from typing import Any
 
 from common.colors import RED, GREEN, RESET, YELLOW
 from common.paths import STATE_DIR
-from channels.types_ import Channel, ChannelAccount, InboundMessage
+from channels.types_ import Channel, ChannelConfig, InboundMessage
 
 STATE_DIR.mkdir(parents=True, exist_ok=True)
 
@@ -55,7 +55,7 @@ class WhatsAppWebChannel(Channel):
     name = "whatsapp_web"
     MAX_MSG_LEN = MAX_MSG_LEN
 
-    def __init__(self, account: ChannelAccount) -> None:
+    def __init__(self, account: ChannelConfig) -> None:
         if not HAS_NEONIZE:
             raise RuntimeError(
                 "WhatsAppWebChannel requires neonize. "

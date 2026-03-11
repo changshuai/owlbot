@@ -5,17 +5,17 @@ from typing import Any, Tuple, List
 from common.paths import WORKSPACE_DIR
 from message.agent_ import AgentManager, Agent
 from message.route_ import BindingTable, AgentManager, Agent, Binding
-from channels.types_ import ChannelAccount, ChannelAccount
+from channels.types_ import ChannelConfig
 
 from message.route_ import BindingTable, AgentManager, Agent, Binding
 from .route_ import BindingTable, AgentManager, DEFAULT_AGENT_ID, build_session_key, normalize_agent_id
 
 CONFIG_PATH = WORKSPACE_DIR / "runtime_config.json"
 
-def setup_from_config() -> Tuple[AgentManager, BindingTable, List[ChannelAccount]] | None:
+def setup_from_config() -> Tuple[AgentManager, BindingTable, List[ChannelConfig]] | None:
     """
     如果存在 runtime_config.json，则根据其中的 agents / bindings / channels
-    构建 AgentManager、BindingTable 和 ChannelAccount 列表。
+    构建 AgentManager、BindingTable 和 ChannelConfig 列表。
 
     JSON 格式（尽量简单）示例：
     {
@@ -69,7 +69,7 @@ def setup_from_config() -> Tuple[AgentManager, BindingTable, List[ChannelAccount
 
     channels_conf = raw.get("channels", [])
     auto_bridge = set(raw.get("auto_bridge", []))
-    accounts: list[ChannelAccount] = []
+    accounts: list[ChannelConfig] = []
     for ch in channels_conf:
         if not ch.get("enabled", True):
             continue
@@ -77,7 +77,7 @@ def setup_from_config() -> Tuple[AgentManager, BindingTable, List[ChannelAccount
         if ch_type not in auto_bridge:
             # 只自动 bridge 在 auto_bridge 里的渠道
             continue
-        acc = ChannelAccount(
+        acc = ChannelConfig(
             channel=ch_type,
             account_id=ch.get("account_id", ch_type + "-default"),
             token="",

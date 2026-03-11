@@ -1,6 +1,6 @@
 from typing import Any
 from common.colors import RED, RESET
-from channels.types_ import Channel, ChannelAccount, InboundMessage
+from channels.types_ import Channel, ChannelConfig, InboundMessage
 import time
 import httpx
 from pathlib import Path
@@ -29,7 +29,7 @@ class TelegramChannel(Channel):
     name = "telegram"
     MAX_MSG_LEN = 4096
 
-    def __init__(self, account: ChannelAccount) -> None:
+    def __init__(self, account: ChannelConfig) -> None:
         if not HAS_HTTPX:
             raise RuntimeError("TelegramChannel requires httpx: pip install httpx")
         self.account_id = account.account_id

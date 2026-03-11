@@ -11,7 +11,7 @@ import queue
 from http.server import HTTPServer, BaseHTTPRequestHandler
 from urllib.parse import parse_qs, urlparse
 from common.colors import RED, RESET
-from channels.types_ import Channel, ChannelAccount, InboundMessage
+from channels.types_ import Channel, ChannelConfig, InboundMessage
 
 try:
     import httpx
@@ -88,7 +88,7 @@ class WhatsAppChannel(Channel):
     name = "whatsapp"
     MAX_MSG_LEN = MAX_MSG_LEN
 
-    def __init__(self, account: ChannelAccount) -> None:
+    def __init__(self, account: ChannelConfig) -> None:
         if not HAS_HTTPX:
             raise RuntimeError("WhatsAppChannel requires httpx: pip install httpx")
         self.account_id = account.account_id

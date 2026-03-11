@@ -18,7 +18,7 @@ class InboundMessage:
     raw: dict = field(default_factory=dict)
 
 @dataclass
-class ChannelAccount:
+class ChannelConfig:
     """Per-bot configuration. One channel type can run multiple bots."""
     channel: str
     account_id: str
@@ -71,7 +71,7 @@ class CLIChannel(Channel):
 # class ChannelManager:
 #     def __init__(self) -> None:
 #         self.channels: dict[str, Channel] = {}
-#         self.accounts: list[ChannelAccount] = []
+#         self.accounts: list[ChannelConfig] = []
 
 #     def register(self, channel: Channel) -> None:
 #         self.channels[channel.name] = channel

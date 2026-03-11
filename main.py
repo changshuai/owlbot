@@ -9,7 +9,7 @@ from message.agent_loop import MODEL_PROVIDER, MODEL_ID
 from message.gateway import GatewayServer
 from message.config_runtime import setup_from_config as setup_from_runtime_config, write_simple_default
 from channels.channel_manager import ChannelManager
-from channels.types_ import ChannelAccount, InboundMessage, CLIChannel
+from channels.types_ import ChannelConfig, InboundMessage, CLIChannel
 from message.message_center import MessageCenter
 
 _event_loop: asyncio.AbstractEventLoop | None = None
