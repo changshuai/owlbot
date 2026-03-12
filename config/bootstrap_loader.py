@@ -15,10 +15,6 @@ MAX_FILE_CHARS = 20000
 MAX_TOTAL_CHARS = 150000
 
 
-# ---------------------------------------------------------------------------
-# 1. Bootstrap File Loader
-# ---------------------------------------------------------------------------
-
 class BootstrapLoader:
     def __init__(self, workspace_dir: Path) -> None:
         self.workspace_dir = workspace_dir

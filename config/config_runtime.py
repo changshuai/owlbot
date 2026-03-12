@@ -1,14 +1,16 @@
+from __future__ import annotations
+
 import json
 from pathlib import Path
 from typing import Any, Tuple, List
 
 from common.paths import WORKSPACE_DIR
-from message.agent_ import AgentManager, Agent
+from agent.agent_ import AgentManager, Agent
 from message.route_ import BindingTable, AgentManager, Agent, Binding
 from channels.types_ import ChannelConfig
 
 from message.route_ import BindingTable, AgentManager, Agent, Binding
-from .route_ import BindingTable, AgentManager, DEFAULT_AGENT_ID, build_session_key, normalize_agent_id
+from message.route_ import BindingTable, AgentManager, DEFAULT_AGENT_ID, build_session_key, normalize_agent_id
 
 CONFIG_PATH = WORKSPACE_DIR / "runtime_config.json"
 

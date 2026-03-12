@@ -3,6 +3,8 @@ WhatsApp channel via Meta WhatsApp Cloud API.
 Send: REST API. Receive: webhook (small HTTP server) + queue.
 Config: token, phone_number_id (required); verify_token, webhook_port, allowed_chats (optional).
 """
+from __future__ import annotations
+
 from typing import Any
 import json
 import re

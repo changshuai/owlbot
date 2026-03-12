@@ -6,10 +6,10 @@ from pathlib import Path
 from typing import Any
 
 from common.paths import WORKSPACE_DIR
-from message.agent_ import Agent
+from agent.agent_ import Agent
 from .memory_store import get_memory_store
 from .skill_manager import SkillsManager
-from .bootstrap_loader import BootstrapLoader
+from config.bootstrap_loader import BootstrapLoader
 from common.paths import get_agent_workspace
 
 def _format_recalled(results: list[dict[str, Any]]) -> str:
@@ -86,12 +86,13 @@ def build_system_prompt(
 
     # Response channel hints
     hints = {
-        "terminal": "You are responding via a terminal REPL. Markdown is supported.",
+        "REPL": "You are responding via a terminal REPL. Markdown is supported.",
+        "cli": "You are responding via a CLI. Markdown is supported.",
         "whatsapp_web": "You are responding via WhatsApp Web. Keep messages concise.",
         "discord": "You are responding via Discord. Keep messages under 2000 characters.",
     }
 
-    sections.append(f"## Channel\n\n{hints.get(channel, f'You are responding via {channel}.')}")
+    sections.append(f"## {hints.get(channel)}")
 
     return "\n\n".join(sections)
 

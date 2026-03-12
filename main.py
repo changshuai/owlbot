@@ -1,13 +1,15 @@
+from __future__ import annotations
+
 import asyncio, sys, threading
 from message.route_ import BindingTable, AgentManager, DEFAULT_AGENT_ID, build_session_key, normalize_agent_id
 from common.colors import DIM, RESET, BOLD, CYAN, GREEN, YELLOW, MAGENTA, BLUE, RED
 from message.route_ import setup_demo
-from message.agent_loop import run_agent
+from agent.agent_loop import run_agent
 from LLMs import get_env_api_key
 from message.route_ import resolve_route
-from message.agent_loop import MODEL_PROVIDER, MODEL_ID
+from agent.agent_loop import MODEL_PROVIDER, MODEL_ID
 from message.gateway import GatewayServer
-from message.config_runtime import setup_from_config as setup_from_runtime_config, write_simple_default
+from config.config_runtime import setup_from_config as setup_from_runtime_config, write_simple_default
 from channels.channel_manager import ChannelManager
 from channels.types_ import ChannelConfig, InboundMessage, CLIChannel
 from message.message_center import MessageCenter
@@ -77,7 +79,6 @@ def cmd_sessions(mgr: AgentManager) -> None:
     for k, n in sorted(s.items()):
         print(f"  {GREEN}{k}{RESET} ({n} msgs)")
     print()
-
 
 
 def repl() -> None:

@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 import asyncio
 import os
 import time
@@ -7,12 +9,13 @@ from LLMs import Context, get_env_api_key, get_model
 from .agent_ import AgentManager, Agent
 from .tools import TOOLS_LLM, process_tool_call
 from .prompt_ import build_system_prompt_for_agent
-from common.colors import DIM, RESET
+from common.colors import DIM, RESET, BOLD, GREEN, YELLOW
 
 import logging
 logger = logging.getLogger(__name__)
 logger.setLevel(logging.INFO)
 logger.addHandler(logging.StreamHandler())
+logger.propagate = False
 
 MODEL_PROVIDER = os.getenv("MODEL_PROVIDER", "openrouter")
 MODEL_ID = os.getenv("MODEL_ID", "deepseek/deepseek-chat")
@@ -80,9 +83,9 @@ async def _agent_loop(
                 system_prompt=system,
                 tools=TOOLS_LLM,
             )
-            for tool in context.tools:
-                logger.info(f"tool: {tool}")
-            logger.info(f"system: {context.system_prompt}")
+            # for tool in context.tools:
+                # logger.info(f" {tool}")
+            logger.info(f"System Prompt:\n {context.system_prompt}")
             response = await model.invoke(context, {"max_tokens": 40960})
 
         except Exception as exc:
@@ -92,7 +95,8 @@ async def _agent_loop(
                 messages.pop()
             return f"API Error: {exc}"
         content_list = response.get("content") or []
-        logger.info(f"content_list: {content_list}")
+
+        logger.info(f"{YELLOW}content_list: {content_list}{RESET}")
 
         assistant_msg: dict = {
             "role": "assistant",
@@ -101,8 +105,12 @@ async def _agent_loop(
         }
         messages.append(assistant_msg)
         stop_reason = response.get("stopReason", "stop")
+
         if stop_reason in ("stop", "end_turn"):
             text = "".join(b.get("text", "") for b in content_list if b.get("type") == "text")
+            
+            # logger.info(f"{GREEN}Assistant Response:\n{text}{RESET}")
+
             return text or "[no text]"
         if stop_reason == "toolUse":
             for block in content_list:
@@ -111,7 +119,9 @@ async def _agent_loop(
                 name = block.get("name", "")
                 bid = block.get("id", "")
                 args = block.get("arguments", {}) or {}
-                print(f"  {DIM}[tool: {name}]{RESET}")
+
+                logger.info(f"{YELLOW}calling tool: {name} with args: {args}{RESET}")
+                # print(f"  {DIM}[tool: {name}]{RESET}")
                 body = process_tool_call(name, args, tool_ctx=tool_ctx)
                 messages.append({
                     "role": "toolResult",

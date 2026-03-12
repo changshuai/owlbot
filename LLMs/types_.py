@@ -2,6 +2,8 @@
 Unified types for the ai_models layer.
 Aligns with packages/ai TypeScript types where practical.
 """
+from __future__ import annotations
+
 from dataclasses import dataclass
 from typing import Any, Literal, TypedDict, Union
 

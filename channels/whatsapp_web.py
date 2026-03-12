@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 """
 WhatsApp Web channel using neonize: QR login, session persistence (SQLite),
 message events → InboundMessage. Only DMs and allowed_groups are enqueued.
@@ -7,15 +9,20 @@ InboundMessage in _inbox; receive() returns from _inbox; send() uses
 client.send_message(chat_jid, text). Requires: neonize (and libmagic on system).
 """
 
-import queue
 import re
 import threading
+import time
 from pathlib import Path
-from typing import Any
-
+from typing import Any, Optional
+import logging
 from common.colors import RED, GREEN, RESET, YELLOW
 from common.paths import STATE_DIR
 from channels.types_ import Channel, ChannelConfig, InboundMessage
+
+logger = logging.getLogger(__name__)
+logger.setLevel(logging.INFO)
+logger.addHandler(logging.StreamHandler())
+logger.propagate = False
 
 STATE_DIR.mkdir(parents=True, exist_ok=True)
 
@@ -56,6 +63,7 @@ class WhatsAppWebChannel(Channel):
     MAX_MSG_LEN = MAX_MSG_LEN
 
     def __init__(self, account: ChannelConfig) -> None:
+        super().__init__()
         if not HAS_NEONIZE:
             raise RuntimeError(
                 "WhatsAppWebChannel requires neonize. "
@@ -78,12 +86,20 @@ class WhatsAppWebChannel(Channel):
         raw_groups = (account.config.get("allowed_groups") or "").strip()
         self.allowed_groups = {g.strip() for g in raw_groups.split(",") if g.strip()} if raw_groups else set()
         self._log_messages = bool(account.config.get("log_messages", False))
+        # Reconnect cap: avoid infinite retry loops (0/None treated as default).
+        try:
+            self._max_reconnect_attempts = int(account.config.get("reconnect_max_attempts", 10))
+        except Exception:
+            self._max_reconnect_attempts = 10
+        if self._max_reconnect_attempts <= 0:
+            self._max_reconnect_attempts = 10
+        self._gave_up = False
 
-        self._inbox: queue.Queue = queue.Queue()
-        self._client: NewClient | None = None
-        self._thread: threading.Thread | None = None
+        self._client: Optional[NewClient] = None
+        self._thread: Optional[threading.Thread] = None
         self._ready = threading.Event()
         self._stop = threading.Event()
+        self._client_lock = threading.Lock()
 
     def _should_accept(self, chat_jid, is_group: bool) -> bool:
         peer_str = _peer_from_jid(chat_jid)
@@ -96,7 +112,7 @@ class WhatsAppWebChannel(Channel):
 
     def _on_connected(self, client: NewClient, _) -> None:
         self._ready.set()
-        print(f"  {GREEN}[whatsapp_web] Connected (session: {self._session_path}){RESET}")
+        logger.info(f"{GREEN}[whatsapp_web] Connected (session: {self._session_path}){RESET}")
 
     def _on_message(self, client: NewClient, event) -> None:
         try:
@@ -129,58 +145,96 @@ class WhatsAppWebChannel(Channel):
                 raw={},
             )
             if self._log_messages:
-                print(f"  {GREEN}[whatsapp_web] from {peer_id}: {text[:50]}{'...' if len(text) > 50 else ''}{RESET}")
-            self._inbox.put(inbound)
+                logger.info(f"{GREEN}[whatsapp_web] from {peer_id}: {text[:50]}{'...' if len(text) > 50 else ''}{RESET}")
+
+            # Push-style: emit inbound message via MessageCenter callback (if set)
+            self._emit_inbound(inbound)
         except Exception as e:
-            print(f"  {RED}[whatsapp_web] on_message: {e}{RESET}")
+            logger.info(f"{RED}[whatsapp_web] on_message: {e}{RESET}")
 
     def start(self) -> None:
         if self._thread and self._thread.is_alive():
             return
-        self._client = NewClient(self._store_path)
-        # QR 由 neonize 默认在命令行中输出，无需保存图片
-        self._client.event(ConnectedEv)(self._on_connected)
-        self._client.event(MessageEv)(self._on_message)
+        if self._gave_up:
+            logger.info(f"{YELLOW}[whatsapp_web] Reconnect attempts exhausted; not retrying.{RESET}")
+            return
+        self._stop.clear()
+        self._ready.clear()
 
-        def run_connect():
-            try:
-                self._client.connect()
-            except Exception as e:
-                print(f"  {RED}[whatsapp_web] connect: {e}{RESET}")
-            finally:
-                self._client = None
+        def run_connect_forever():
+            backoff = 1.0
+            attempts = 0
+            while not self._stop.is_set():
+                if attempts >= self._max_reconnect_attempts:
+                    self._gave_up = True
+                    logger.info(
+                        f"  {RED}[whatsapp_web] connect: gave up after {attempts} attempt(s).{RESET}"
+                    )
+                    break
+                try:
+                    client = NewClient(self._store_path)
+                    # QR 由 neonize 默认在命令行中输出，无需保存图片
+                    client.event(ConnectedEv)(self._on_connected)
+                    client.event(MessageEv)(self._on_message)
+                    with self._client_lock:
+                        self._client = client
+                    attempts += 1
+                    client.connect()
+                    # connect() 返回（断线/退出）也视为需要重连
+                    if not self._stop.is_set():
+                        logger.info(f"{YELLOW}[whatsapp_web] disconnected; retrying...{RESET}")
+                except Exception as e:
+                    if not self._stop.is_set():
+                        logger.info(f"{RED}[whatsapp_web] connect error: {e}{RESET}")
+                finally:
+                    with self._client_lock:
+                        self._client = None
+                    self._ready.clear()
+                if self._stop.is_set():
+                    break
+                time.sleep(backoff)
+                backoff = min(backoff * 2.0, 60.0)
 
-        self._thread = threading.Thread(target=run_connect, daemon=True)
+        self._thread = threading.Thread(target=run_connect_forever, daemon=True)
         self._thread.start()
         self._ready.wait(timeout=90)
         if not self._ready.is_set():
-            print(f"  {YELLOW}[whatsapp_web] Waiting for QR scan / connection.{RESET}")
+            logger.info(f"{YELLOW}[whatsapp_web] Waiting for QR scan / connection.{RESET}")
 
     def ensure_started(self) -> None:
+        if self._gave_up:
+            return
         if self._thread is None or not self._thread.is_alive():
             self.start()
         self._ready.wait(timeout=0.5)
 
-    def receive(self) -> InboundMessage | None:
+    def receive(self) -> Optional[InboundMessage]:
+        """
+        Backward-compatible pull API. For WhatsAppWebChannel we primarily rely on
+        push-style callbacks via _emit_inbound; receive() is kept as a no-op
+        that ensures the client is started but does not block.
+        """
         self.ensure_started()
-        try:
-            return self._inbox.get(timeout=1.0)
-        except queue.Empty:
-            return None
+        return None
 
     def send(self, to: str, text: str, **kwargs: Any) -> bool:
         to = to.split(":topic:")[0] if ":topic:" in to else to
         if not self._client:
             self.ensure_started()
-        if not self._client:
+        with self._client_lock:
+            client = self._client
+        if not client:
             return False
         try:
             chat_jid = _jid_from_peer_id(to)
+
+            logger.info(f"{GREEN}[whatsapp_web] -> {text}{RESET}")
+
             for chunk in self._chunk(text):
-                self._client.send_message(chat_jid, chunk)
+                client.send_message(chat_jid, chunk)
             return True
         except Exception as e:
-            print(f"  {RED}[whatsapp_web] send: {e}{RESET}")
+            logger.info(f"{RED}[whatsapp_web] send: {e}{RESET}")
             return False
 
     def _chunk(self, text: str) -> list[str]:
@@ -199,12 +253,14 @@ class WhatsAppWebChannel(Channel):
         return chunks
 
     def send_typing(self, chat_id: str) -> None:
-        if not self._client:
+        with self._client_lock:
+            client = self._client
+        if not client:
             return
         try:
             from neonize.utils import ChatPresence, ChatPresenceMedia
             jid = _jid_from_peer_id(chat_id)
-            self._client.send_chat_presence(
+            client.send_chat_presence(
                 jid,
                 ChatPresence.CHAT_PRESENCE_COMPOSING,
                 ChatPresenceMedia.CHAT_PRESENCE_MEDIA_TEXT,
@@ -214,9 +270,13 @@ class WhatsAppWebChannel(Channel):
 
     def close(self) -> None:
         self._stop.set()
-        if self._client and hasattr(self._client, "disconnect"):
+        self._gave_up = False
+        with self._client_lock:
+            client = self._client
+        if client and hasattr(client, "disconnect"):
             try:
-                self._client.disconnect()
+                client.disconnect()
             except Exception:
                 pass
-        self._client = None
+        with self._client_lock:
+            self._client = None

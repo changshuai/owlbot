@@ -1,4 +1,6 @@
 """Build Model instances for known providers. Only Model (base type) is exposed to upper layer."""
+from __future__ import annotations
+
 from .anthropicmodel import AnthropicModel
 from .googlemodel import GoogleModel
 from .modelbase import Model

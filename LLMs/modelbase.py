@@ -4,6 +4,8 @@ Base Model: abstract class for all model implementations.
 Upper layer only sees Model. Subclasses (OpenAIModel, etc.) call vendor SDKs directly
 and are instantiated by get_model() according to provider.
 """
+from __future__ import annotations
+
 import time
 from abc import ABC, abstractmethod
 from typing import Any, AsyncIterator

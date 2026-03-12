@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 from pathlib import Path
 from datetime import datetime, timezone
 from dataclasses import dataclass, field
@@ -6,7 +8,7 @@ from common.colors import CYAN, GREEN, YELLOW, DIM, RESET, BOLD, MAGENTA, RED, B
 from common.paths import PROJECT_ROOT, WORKSPACE_DIR, AGENTS_DIR
 from dotenv import load_dotenv
 import sys
-from .agent_ import Agent, normalize_agent_id, AgentManager, DEFAULT_AGENT_ID
+from agent.agent_ import Agent, normalize_agent_id, AgentManager, DEFAULT_AGENT_ID
 
 if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))

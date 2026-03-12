@@ -1,10 +1,12 @@
+from __future__ import annotations
+
 from typing import Any
 from common.colors import RED, RESET
 from channels.types_ import Channel, ChannelConfig, InboundMessage
 import time
 import httpx
 from pathlib import Path
-from common.logs import print_assistant
+
 from common.paths import WORKSPACE_DIR, STATE_DIR
 
 STATE_DIR.mkdir(parents=True, exist_ok=True)

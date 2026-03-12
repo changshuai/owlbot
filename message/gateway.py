@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 from .route_ import (
     Binding,
     BindingTable,
@@ -6,7 +8,7 @@ from .route_ import (
     normalize_agent_id,
 )
 from .route_ import resolve_route
-from .agent_loop import run_agent
+from agent.agent_loop import run_agent
 import json, asyncio, time, logging
 from typing import Any, Dict, List, Optional
 

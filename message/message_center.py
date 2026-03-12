@@ -5,16 +5,15 @@ main program starts, channels (e.g. WhatsApp Web) are monitored and only binding
 matched conversations are handled; unconfigured group messages are not processed
 (channel filters them before enqueue).
 """
-from __future__ import annotations
-
 import logging
 import threading
-from typing import Callable, List
+import queue
+from typing import Callable, List, Optional
 
 from channels.types_ import Channel, InboundMessage
 from .route_ import AgentManager, BindingTable, resolve_route
-from .agent_ import Agent, AgentManager
-from .agent_loop import run_agent
+from agent.agent_ import Agent, AgentManager
+from agent.agent_loop import run_agent
 
 logger = logging.getLogger(__name__)
 
@@ -37,16 +36,32 @@ class MessageCenter:
         mgr: AgentManager,
         bindings: BindingTable,
         channels: List[Channel],
-        run_async_fn: Callable | None = None,
-        poll_interval: float = 3.0,
+        run_async_fn: Optional[Callable] = None,
     ) -> None:
         self._mgr = mgr
         self._bindings = bindings
         self._channels = list(channels)
         self._run_async = run_async_fn or run_async
-        self._poll_interval = max(0.1, poll_interval)
         self._stop = threading.Event()
-        self._thread: threading.Thread | None = None
+        self._thread: Optional[threading.Thread] = None
+
+        # Global inbound queue: channels act as producers, MessageCenter as consumer.
+        self._queue: "queue.Queue[tuple[InboundMessage, Channel]]" = queue.Queue()
+
+        # Register callbacks so push-style channels can enqueue messages directly.
+        for ch in self._channels:
+            if hasattr(ch, "set_inbound_callback"):
+                try:
+                    ch.set_inbound_callback(self._on_channel_inbound)  # type: ignore[arg-type]
+                except Exception:
+                    # If a channel doesn't support callbacks, it will still be polled via receive().
+                    logger.debug("Channel %s does not support inbound callback", getattr(ch, "name", ch))
+                # 显式启动有长期连接需求的渠道
+            if hasattr(ch, "ensure_started"):
+                try:
+                    ch.ensure_started()
+                except Exception as exc:
+                    logger.debug("ensure_started failed for %s: %s", getattr(ch, "name", ch), exc)
 
     def start(self) -> None:
         if self._thread and self._thread.is_alive():
@@ -58,16 +73,20 @@ class MessageCenter:
 
     def stop(self) -> None:
         self._stop.set()
+        self._queue.put((None, None))
         if self._thread:
             self._thread.join(timeout=5)
             self._thread = None
 
     def _loop(self) -> None:
-        import time
         while not self._stop.is_set():
-            for ch in self._channels:
-                self.dispatch(ch)
-            time.sleep(self._poll_interval)
+            msg, ch = self._queue.get()  # 无 timeout，纯阻塞
+            if msg and ch:
+                self.handle_message(msg, ch)
+
+    def _on_channel_inbound(self, msg: InboundMessage, ch: Channel) -> None:
+        """Callback invoked by channels when they receive a new InboundMessage."""
+        self._queue.put((msg, ch))
 
     def dispatch(self, ch: Channel) -> None:
         """
@@ -76,6 +95,7 @@ class MessageCenter:
         """
         try:
             msg = ch.receive()
+            logger.info(f"========= {ch.name} received message: {msg}")
         except Exception as e:
             logger.debug("channel %s receive error: %s", getattr(ch, "name", ch), e)
             return
@@ -98,10 +118,29 @@ class MessageCenter:
                 account_id=msg.account_id or "",
                 guild_id="",
             )
+
+            # Adapt channel's send_typing(chat_id) to run_agent's on_typing(agent_id, is_typing)
+            on_typing_cb = None
+            if getattr(ch, "send_typing", None):
+                def on_typing_cb(_agent_id: str, is_typing: bool, peer_id: str = msg.peer_id, channel: Channel = ch):
+                    if is_typing:
+                        try:
+                            channel.send_typing(peer_id)
+                        except Exception:
+                            # Typing indicator failures should not break message handling
+                            logger.debug("send_typing failed for %s", peer_id)
+
             reply = self._run_async(
-                run_agent(self._mgr, agent_id, session_key, msg.text)
+                run_agent(
+                    self._mgr,
+                    agent_id,
+                    session_key,
+                    msg.text,
+                    on_typing=on_typing_cb,
+                    channel=msg.channel,
+                )
             )
-            ch.send(msg.peer_id, reply or "")
+            ch.send(msg.peer_id, "[OwlBot]: " + (reply or ""))
         except Exception as e:
             logger.exception("MessageDispatcher dispatch %s: %s", msg.peer_id, e)
             try:

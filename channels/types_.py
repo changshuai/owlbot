@@ -1,10 +1,15 @@
+from __future__ import annotations
+
 from dataclasses import dataclass, field
-from typing import Any
+from typing import Any, Optional, Callable
 from abc import ABC, abstractmethod
-from common.colors import CYAN, GREEN, YELLOW, DIM, RESET, BOLD, RED, BLUE
-from common.logs import print_assistant
-from common.logs import print_channel
-  
+from common.colors import CYAN, GREEN, RESET, BOLD
+import logging
+logger = logging.getLogger(__name__)
+logger.setLevel(logging.INFO)
+logger.addHandler(logging.StreamHandler())
+logger.propagate = False
+
 @dataclass
 class InboundMessage:
     """All channels normalize into this. The agent loop only sees InboundMessage."""
@@ -32,8 +37,22 @@ def build_session_key(channel: str, account_id: str, peer_id: str) -> str:
 class Channel(ABC):
     name: str = "unknown"
 
+    def __init__(self) -> None:
+        # Optional callback set by MessageCenter; channels call this when they
+        # have an InboundMessage ready (push-style).
+        self._inbound_cb: Optional[Callable[[InboundMessage, "Channel"], None]] = None
+
+    def set_inbound_callback(self, cb: Callable[[InboundMessage, "Channel"], None]) -> None:
+        """Register a callback that will be invoked when this channel receives a message."""
+        self._inbound_cb = cb
+
+    def _emit_inbound(self, msg: InboundMessage) -> None:
+        """Helper for channel implementations to push a new inbound message."""
+        if self._inbound_cb:
+            self._inbound_cb(msg, self)
+
     @abstractmethod
-    def receive(self) -> InboundMessage | None: ...
+    def receive(self) -> Optional[InboundMessage]: ...
 
     @abstractmethod
     def send(self, to: str, text: str, **kwargs: Any) -> bool: ...
@@ -49,9 +68,10 @@ class CLIChannel(Channel):
     name = "cli"
 
     def __init__(self) -> None:
+        super().__init__()
         self.account_id = "cli-local"
 
-    def receive(self) -> InboundMessage | None:
+    def receive(self) -> Optional[InboundMessage]:
         try:
             text = input(f"{CYAN}{BOLD}You > {RESET}").strip()
         except (KeyboardInterrupt, EOFError):
@@ -64,7 +84,7 @@ class CLIChannel(Channel):
         )
 
     def send(self, to: str, text: str, **kwargs: Any) -> bool:
-        print_assistant(text)
+        logger.info(f"{GREEN}[CLI] -> {text}{RESET}")
         return True
 
 

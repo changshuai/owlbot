@@ -1,6 +1,8 @@
 """
 Anthropic model: stream/invoke via Anthropic Messages SDK.
 """
+from __future__ import annotations
+
 from typing import Any, AsyncIterator
 
 from .envapikeys import get_env_api_key

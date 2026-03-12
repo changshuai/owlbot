@@ -1,10 +1,12 @@
+from __future__ import annotations
+
 from typing import Any
 from datetime import datetime, timezone
 from pathlib import Path
 
 from .memory_store import get_memory_store
 from common.paths import WORKSPACE_DIR
-from common.logs import print_tool
+
 import subprocess
 import logging
 logger = logging.getLogger(__name__)
@@ -66,7 +68,7 @@ TOOLS = [
         "name": "memory",
         "description": (
             "Long-term memory: write saves a fact; search returns relevant snippets by similarity. "
-            "Use write when you learn something worth remembering; use search to recall past context."
+            "Use write to save important user facts and preferences; reference remembered facts naturally in conversation; use search to recall specific past information."
         ),
         "input_schema": {
             "type": "object",
@@ -170,8 +172,6 @@ def _tool_bash(command: str, timeout: int = 30, tool_ctx: dict[str, Any] | None 
             return f"Error: Refused to run command that escapes workspace: '{prefix}'"
 
     effective_timeout = min(max(1, timeout), BASH_MAX_TIMEOUT)
-
-    print_tool("bash", command)
     try:
         result = subprocess.run(
             raw,
@@ -208,7 +208,6 @@ def _tool_file(
     if act not in ("read", "write", "edit"):
         return f"Error: file action must be read, write, or edit; got '{action}'"
 
-    print_tool("file", f"{act} {file_path}")
     try:
         target = safe_path(file_path)
         if act == "read":
@@ -265,12 +264,10 @@ def _tool_memory(
     if act == "write":
         if not (content or "").strip():
             return "Error: memory write requires non-empty 'content'."
-        print_tool("memory", f"write [{category}] {content[:60]}...")
         return store.write_memory(content.strip(), category or "general")
     # search
     if not (query or "").strip():
         return "Error: memory search requires non-empty 'query'."
-    print_tool("memory", f"search {query[:60]}...")
     results = store.hybrid_search(query.strip(), top_k=max(1, min(top_k, 20)))
     if not results:
         return "No relevant memories found."

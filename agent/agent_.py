@@ -2,6 +2,7 @@ from dataclasses import dataclass
 from common.paths import AGENTS_DIR, WORKSPACE_DIR
 import re
 from pathlib import Path
+from typing import Optional
 
 ## Valid ID Regex
 VALID_ID_RE = re.compile(r"^[a-z0-9][a-z0-9_-]{0,63}$")
@@ -37,7 +38,7 @@ class Agent:
         return " ".join(parts)
 
 class AgentManager:
-    def __init__(self, agents_base: Path | None = None) -> None:
+    def __init__(self, agents_base: Optional[Path] = None) -> None:
         self._agents: dict[str, Agent] = {}
         self._agents_base = agents_base or AGENTS_DIR
         self._sessions: dict[str, list[dict]] = {}
@@ -50,7 +51,7 @@ class AgentManager:
         (agent_dir / "sessions").mkdir(parents=True, exist_ok=True)
         (WORKSPACE_DIR / f"workspace-{aid}").mkdir(parents=True, exist_ok=True)
 
-    def get_agent(self, agent_id: str) -> Agent | None:
+    def get_agent(self, agent_id: str) -> Optional[Agent]:
         return self._agents.get(normalize_agent_id(agent_id))
 
     def list_agents(self) -> list[Agent]:
