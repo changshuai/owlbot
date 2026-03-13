@@ -8,7 +8,6 @@ from typing import Any
 from LLMs import Context, get_env_api_key, get_model
 from .agent_ import AgentManager, Agent
 from .tools import TOOLS_LLM, process_tool_call
-from .prompt_ import build_system_prompt_for_agent
 from common.colors import DIM, RESET, BOLD, GREEN, YELLOW
 
 import logging
@@ -43,25 +42,18 @@ async def run_agent(
     messages = mgr.get_session(session_key)
     messages.append({"role": "user", "content": user_text, "timestamp": int(time.time() * 1000)})
 
-    # Decide which system prompt builder to use (dynamic vs legacy).
-    intelligence_enabled = os.getenv("INTELLIGENCE_ENABLED", "1") != "0"
-    if intelligence_enabled:
-        system_prompt = build_system_prompt_for_agent(
-            agent,
-            agent_id,
-            channel=channel,
-            model_id=agent.effective_model,
-            last_user_message=user_text,
-        )
-    else:
-        system_prompt = agent.system_prompt()
+    # Build dynamic per-turn system prompt for this agent.
+    system_prompt = agent.build_system_prompt_for_agent(
+        channel=channel,
+        last_user_message=user_text,
+    )
 
     async with _agent_semaphore:
         if on_typing:
             on_typing(agent_id, True)
         try:
             tool_ctx = {"agent_id": agent_id, "channel": channel, "session_key": session_key}
-            return await _agent_loop(agent.effective_model, system_prompt, messages, tool_ctx=tool_ctx)
+            return await _agent_loop(agent.model, system_prompt, messages, tool_ctx=tool_ctx)
         finally:
             if on_typing:
                 on_typing(agent_id, False)

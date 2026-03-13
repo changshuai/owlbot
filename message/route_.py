@@ -14,27 +14,36 @@ if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 load_dotenv(PROJECT_ROOT / ".env", override=True)
 
-# ---------------------------------------------------------------------------
-# Binding: 5-Tier Route Resolution
-# ---------------------------------------------------------------------------
-# Tier 1: peer_id    -- route a specific user to an agent
-# Tier 2: guild_id   -- guild/server level
-# Tier 3: account_id -- bot account level
-# Tier 4: channel    -- entire channel (e.g. all Telegram)
-# Tier 5: default    -- fallback
-
 @dataclass
 class Binding:
+    """
+    不同的peer_id 可以绑定到同一个agent_id, 也可以绑定到不同的agent_id。
+    同一个agent中的 context 会根据 session_key 来区分。 session_key 的格式为 {agent_id}-{channel}-{account_id}-{peer_id}。
+    保证每个 session_key 对应到 peer_id 或者 channel，或者 channel + account_id。
+
+    绑定规则（三层：channel / account / peer）：
+    - channel:    渠道名，如 "whatsapp_web" / "telegram"，"*" 表示任意
+    - account_id: 账号 ID，如 "wa-default"，"*" 表示任意
+    - peer_id:    对端 ID（人/群的 jid / chat_id），"*" 表示任意
+
+    优先级：
+    - 精确到 peer      -> 最具体
+    - 精确到 account   -> 次之
+    - 只指定 channel   -> 再次
+    - 全 "*"           -> 最弱（兜底）
+    同一具体程度下，priority 越大越优先。
+    """
     agent_id: str
-    tier: int           # 1-5, lower = more specific
-    match_key: str      # "peer_id" | "guild_id" | "account_id" | "channel" | "default"
-    match_value: str    # e.g. "telegram:12345", "discord", "*"
-    priority: int = 0   # within same tier, higher = preferred
+    channel: str = "*"
+    account_id: str = "*"
+    peer_id: str = "*"
+    priority: int = 0
 
     def display(self) -> str:
-        names = {1: "peer", 2: "guild", 3: "account", 4: "channel", 5: "default"}
-        label = names.get(self.tier, f"tier-{self.tier}")
-        return f"[{label}] {self.match_key}={self.match_value} -> agent:{self.agent_id} (pri={self.priority})"
+        return (
+            f"[binding] ch={self.channel} acc={self.account_id} peer={self.peer_id} "
+            f"-> agent:{self.agent_id} (pri={self.priority})"
+        )
 
 class BindingTable:
     def __init__(self) -> None:
@@ -42,62 +51,114 @@ class BindingTable:
 
     def add(self, binding: Binding) -> None:
         self._bindings.append(binding)
-        self._bindings.sort(key=lambda b: (b.tier, -b.priority))
 
-    def remove(self, agent_id: str, match_key: str, match_value: str) -> bool:
+    def remove(
+        self,
+        agent_id: str,
+        channel: str = "*",
+        account_id: str = "*",
+        peer_id: str = "*",
+    ) -> bool:
         before = len(self._bindings)
         self._bindings = [
             b for b in self._bindings
-            if not (b.agent_id == agent_id and b.match_key == match_key
-                    and b.match_value == match_value)
+            if not (
+                b.agent_id == agent_id
+                and b.channel == channel
+                and b.account_id == account_id
+                and b.peer_id == peer_id
+            )
         ]
         return len(self._bindings) < before
 
     def list_all(self) -> list[Binding]:
         return list(self._bindings)
 
-    def resolve(self, channel: str = "", account_id: str = "",
-                guild_id: str = "", peer_id: str = "") -> tuple[str | None, Binding | None]:
-        """Walk tiers 1-5, first match wins. Returns (agent_id, matched_binding)."""
-        for b in self._bindings:
-            if b.tier == 1 and b.match_key == "peer_id":
-                if ":" in b.match_value:
-                    if b.match_value == f"{channel}:{peer_id}":
-                        return b.agent_id, b
-                elif b.match_value == peer_id:
-                    return b.agent_id, b
-            elif b.tier == 2 and b.match_key == "guild_id" and b.match_value == guild_id:
-                return b.agent_id, b
-            elif b.tier == 3 and b.match_key == "account_id" and b.match_value == account_id:
-                return b.agent_id, b
-            elif b.tier == 4 and b.match_key == "channel" and b.match_value == channel:
-                return b.agent_id, b
-            elif b.tier == 5 and b.match_key == "default":
-                return b.agent_id, b
-        return None, None
+    def resolve(
+        self,
+        channel: str = "",
+        account_id: str = "",
+        guild_id: str = "",
+        peer_id: str = "",
+    ) -> tuple[str | None, Binding | None]:
+        """
+        根据 (channel, account_id, peer_id) 选出“最具体”的一条绑定：
+        - 精确匹配字段数量更多的优先（3 > 2 > 1 > 0）
+        - 同一具体程度下，priority 大的优先
+        """
+        ch = (channel or "").strip().lower()
+        acc = (account_id or "").strip().lower()
+        pid = (peer_id or "").strip().lower()
 
-# ---------------------------------------------------------------------------
-# Session Key Builder
-# ---------------------------------------------------------------------------
-# dm_scope controls DM isolation granularity:
-#   main                      -> agent:{id}:main
-#   per-peer                  -> agent:{id}:direct:{peer}
-#   per-channel-peer          -> agent:{id}:{ch}:direct:{peer}
-#   per-account-channel-peer  -> agent:{id}:{ch}:{acc}:direct:{peer}
+        best_key: tuple[int, int, int] | None = None  # (specificity, priority, -index)
+        best_binding: Binding | None = None
 
-def build_session_key(agent_id: str, channel: str = "", account_id: str = "",
-                      peer_id: str = "", dm_scope: str = "per-peer") -> str:
+        for idx, b in enumerate(self._bindings):
+            if b.channel not in ("*", ch):
+                continue
+            if b.account_id not in ("*", acc):
+                continue
+            if b.peer_id not in ("*", pid):
+                continue
+
+            spec = 0
+            if b.channel != "*":
+                spec += 1
+            if b.account_id != "*":
+                spec += 1
+            if b.peer_id != "*":
+                spec += 1
+
+            key = (spec, b.priority, -idx)
+            if best_key is None or key > best_key:
+                best_key = key
+                best_binding = b
+
+        if not best_binding:
+            return None, None
+        return best_binding.agent_id, best_binding
+
+def build_session_key(
+    agent_id: str,
+    channel: str = "",
+    account_id: str = "",
+    peer_id: str = "",
+) -> str:
+    """Build a normalized conversation/session key using 4 段式命名:
+    {aid}-{channel}-{account}-{peer}.
+
+    约定：
+    - 有 peer_id 时，channel / account_id 必须是合法非空值；
+      会话粒度 = (agent, channel, account, peer)。
+    - 无 peer_id 时，根据是否有 account_id / channel 退化为更粗粒度会话：
+      - 有 channel + account_id   -> {aid}-{channel}-{account}-main
+      - 只有 channel              -> {aid}-{channel}-main-main
+      - 都没有                    -> {aid}-global-main-main
+    """
     aid = normalize_agent_id(agent_id)
-    ch = (channel or "unknown").strip().lower()
-    acc = (account_id or "default").strip().lower()
+    ch = (channel or "").strip().lower()
+    acc = (account_id or "").strip().lower()
     pid = (peer_id or "").strip().lower()
-    if dm_scope == "per-account-channel-peer" and pid:
-        return f"agent:{aid}:{ch}:{acc}:direct:{pid}"
-    if dm_scope == "per-channel-peer" and pid:
-        return f"agent:{aid}:{ch}:direct:{pid}"
-    if dm_scope == "per-peer" and pid:
-        return f"agent:{aid}:direct:{pid}"
-    return f"agent:{aid}:main"
+
+    # 最常见：精确到某个对端（人 / 群）
+    if pid:
+        if not ch or not acc:
+            raise ValueError(
+                f"build_session_key: peer_id='{pid}' 需要非空的 channel/account_id，"
+                f"当前 channel='{ch}' account_id='{acc}'"
+            )
+        return f"{aid}-{ch}-{acc}-{pid}"
+
+    # 退化：到账号级别（某渠道 + 某账号 的聚合会话）
+    if ch and acc:
+        return f"{aid}-{ch}-{acc}-main"
+
+    # 退化：到渠道级别（某渠道的聚合会话）
+    if ch:
+        return f"{aid}-{ch}-main-main"
+
+    # 最退化：全局级别（仅按 agent 聚合，用于全局记录）
+    return f"{aid}-global-main-main"
 
 
 def resolve_route(bindings: BindingTable, mgr: AgentManager,
@@ -113,27 +174,24 @@ def resolve_route(bindings: BindingTable, mgr: AgentManager,
     elif matched:
         print(f"  {DIM}[route] Matched: {matched.display()}{RESET}")
     agent = mgr.get_agent(agent_id)
-    dm_scope = agent.dm_scope if agent else "per-peer"
-    sk = build_session_key(agent_id, channel=channel, account_id=account_id,
-                           peer_id=peer_id, dm_scope=dm_scope)
+    sk = build_session_key(agent_id, channel=channel, account_id=account_id, peer_id=peer_id)
     return agent_id, sk
 
 
 def setup_demo() -> tuple[AgentManager, BindingTable]:
     mgr = AgentManager()
     mgr.register(Agent(
-        id="luna", name="Luna",
-        personality="warm, curious, and encouraging. You love asking follow-up questions.",
+        id="luna", name="Luna"
     ))
 
     mgr.register(Agent(
-        id="sage", name="Sage",
-        personality="direct, analytical, and concise. You prefer facts over opinions.",
+        id="sage", name="Sage"
     ))
     bt = BindingTable()
-    bt.add(Binding(agent_id="luna", tier=5, match_key="default", match_value="*"))
-    bt.add(Binding(agent_id="sage", tier=4, match_key="channel", match_value="telegram"))
-    bt.add(Binding(agent_id="luna", tier=4, match_key="channel", match_value="whatsapp_web"))
-    bt.add(Binding(agent_id="sage", tier=1, match_key="peer_id",
-                   match_value="discord:admin-001", priority=10))
+    # 全局默认：所有渠道 / 账号 / 对端 -> luna
+    bt.add(Binding(agent_id="luna", channel="*", account_id="*", peer_id="*", priority=0))
+    # Telegram 渠道默认 -> sage
+    bt.add(Binding(agent_id="sage", channel="telegram", account_id="*", peer_id="*", priority=0))
+    # WhatsApp 渠道默认 -> luna
+    bt.add(Binding(agent_id="luna", channel="whatsapp_web", account_id="*", peer_id="*", priority=0))
     return mgr, bt

@@ -6,7 +6,6 @@ from channels.types_ import Channel, ChannelConfig, InboundMessage
 import time
 import httpx
 from pathlib import Path
-
 from common.paths import WORKSPACE_DIR, STATE_DIR
 
 STATE_DIR.mkdir(parents=True, exist_ok=True)

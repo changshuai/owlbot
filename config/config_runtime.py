@@ -5,12 +5,9 @@ from pathlib import Path
 from typing import Any, Tuple, List
 
 from common.paths import WORKSPACE_DIR
-from agent.agent_ import AgentManager, Agent
-from message.route_ import BindingTable, AgentManager, Agent, Binding
+from agent.agent_ import Agent, AgentManager
+from message.route_ import BindingTable, Binding
 from channels.types_ import ChannelConfig
-
-from message.route_ import BindingTable, AgentManager, Agent, Binding
-from message.route_ import BindingTable, AgentManager, DEFAULT_AGENT_ID, build_session_key, normalize_agent_id
 
 CONFIG_PATH = WORKSPACE_DIR / "runtime_config.json"
 
@@ -18,32 +15,10 @@ def setup_from_config() -> Tuple[AgentManager, BindingTable, List[ChannelConfig]
     """
     如果存在 runtime_config.json，则根据其中的 agents / bindings / channels
     构建 AgentManager、BindingTable 和 ChannelConfig 列表。
-
-    JSON 格式（尽量简单）示例：
-    {
-      "agents": [
-        {"id": "luna", "name": "Luna", "personality": "", "model": "", "dm_scope": "per-peer"}
-      ],
-      "bindings": [
-        {"agent_id": "luna", "tier": 5, "match_key": "default", "match_value": "*", "priority": 0},
-        {"agent_id": "luna", "tier": 4, "match_key": "channel", "match_value": "whatsapp_web", "priority": 0}
-      ],
-      "channels": [
-        {
-          "type": "whatsapp_web",
-          "account_id": "wa-default",
-          "enabled": true,
-          "config": {
-            "session_path": "",
-            "allowed_chats": "",
-            "allowed_groups": "",
-            "log_messages": true
-          }
-        }
-      ],
-      "auto_bridge": ["whatsapp_web"]
-    }
     """
+    if not CONFIG_PATH.is_file():
+        return None
+
     raw = json.loads(CONFIG_PATH.read_text(encoding="utf-8"))
     if not raw:
         return None
@@ -57,15 +32,14 @@ def setup_from_config() -> Tuple[AgentManager, BindingTable, List[ChannelConfig]
             name=a.get("name", "Main"),
             personality=a.get("personality", ""),
             model=a.get("model", ""),
-            dm_scope=a.get("dm_scope", "per-peer"),
         ))
 
     for b in raw.get("bindings", []):
         bt.add(Binding(
             agent_id=b.get("agent_id", "main"),
-            tier=int(b.get("tier", 5)),
-            match_key=b.get("match_key", "default"),
-            match_value=b.get("match_value", "*"),
+            channel=b.get("channel", "*"),
+            account_id=b.get("account_id", "*"),
+            peer_id=b.get("peer_id", "*"),
             priority=int(b.get("priority", 0)),
         ))
 
@@ -100,11 +74,13 @@ def write_simple_default(path: Path | None = None) -> None:
         return
     data: dict[str, Any] = {
         "agents": [
-            {"id": "luna", "name": "Luna", "personality": "", "model": "", "dm_scope": "per-peer"},
+            {"id": "luna", "name": "Luna", "personality": "", "model": ""},
         ],
         "bindings": [
-            {"agent_id": "luna", "tier": 5, "match_key": "default", "match_value": "*", "priority": 0},
-            {"agent_id": "luna", "tier": 4, "match_key": "channel", "match_value": "whatsapp_web", "priority": 0},
+            # 全局默认：所有渠道 / 账号 / 对端 -> luna
+            {"agent_id": "luna", "channel": "*", "account_id": "*", "peer_id": "*", "priority": 0},
+            # WhatsApp 渠道默认 -> luna（示例，和上面等价，只是更具体）
+            {"agent_id": "luna", "channel": "whatsapp_web", "account_id": "*", "peer_id": "*", "priority": 0},
         ],
         "channels": [
             {

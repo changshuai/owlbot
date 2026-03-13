@@ -29,14 +29,6 @@ HTML_FORM = """<!doctype html>
     <label>Agent ID: <input name="agent_id" value="luna"></label><br>
     <label>Agent 名称: <input name="agent_name" value="Luna"></label><br>
     <label>Personality: <input name="personality" style="width:400px;"></label><br>
-    <label>dm_scope:
-      <select name="dm_scope">
-        <option value="per-peer" selected>per-peer</option>
-        <option value="main">main</option>
-        <option value="per-channel-peer">per-channel-peer</option>
-        <option value="per-account-channel-peer">per-account-channel-peer</option>
-      </select>
-    </label>
 
     <h2>WhatsApp Web 渠道</h2>
     <label><input type="checkbox" name="enable_wa" checked> 启用 WhatsApp Web</label><br>
@@ -74,22 +66,21 @@ class WizardHandler(BaseHTTPRequestHandler):
           rows: list[str] = []
           for b in bds:
             agent = b.get("agent_id", "?")
-            tier = int(b.get("tier", 5))
-            key = b.get("match_key", "default")
-            val = b.get("match_value", "*")
+            ch = b.get("channel", "*")
+            acc = b.get("account_id", "*")
+            peer = b.get("peer_id", "*")
 
-            # 用更人性化的语句描述绑定含义
-            if key == "default" and tier == 5:
+            # 用更人性化的语句描述绑定含义（新版 4 维绑定）
+            if ch == "*" and acc == "*" and peer == "*":
               text = f"所有没有更具体规则匹配到的消息，都会交给 Agent \"{agent}\" 处理。"
-            elif key == "channel" and tier == 4:
-              text = f"来自渠道 \"{val}\" 的所有消息，默认交给 Agent \"{agent}\" 处理。"
-            elif key == "peer_id" and tier == 1:
-              text = f"来自对话/用户 \"{val}\" 的消息，优先交给 Agent \"{agent}\" 处理。"
+            elif peer != "*":
+              text = f"来自对话/用户 \"{peer}\" 的消息，优先交给 Agent \"{agent}\" 处理。"
+            elif acc != "*" and ch != "*":
+              text = f"来自渠道 \"{ch}\" 账号 \"{acc}\" 的所有消息，默认交给 Agent \"{agent}\" 处理。"
+            elif ch != "*":
+              text = f"来自渠道 \"{ch}\" 的所有消息，默认交给 Agent \"{agent}\" 处理。"
             else:
-              text = (
-                f"匹配规则 [tier {tier}] {key}={val} → Agent \"{agent}\" "
-                "(这是较底层的高级用法，一般情况可以忽略这一行)。"
-              )
+              text = f"一条高级绑定规则：channel={ch}, account_id={acc}, peer_id={peer} → Agent \"{agent}\"。"
             rows.append(f"<li>{text}</li>")
 
           bindings_html = (
@@ -123,7 +114,6 @@ class WizardHandler(BaseHTTPRequestHandler):
     agent_id = gv("agent_id", "luna")
     agent_name = gv("agent_name", "Luna")
     personality = gv("personality", "")
-    dm_scope = gv("dm_scope", "per-peer")
 
     channels = []
     auto_bridge = []
@@ -154,12 +144,11 @@ class WizardHandler(BaseHTTPRequestHandler):
           "name": agent_name,
           "personality": personality,
           "model": "",
-          "dm_scope": dm_scope,
         },
       ],
       "bindings": [
-        {"agent_id": agent_id, "tier": 5, "match_key": "default", "match_value": "*", "priority": 0},
-        {"agent_id": agent_id, "tier": 4, "match_key": "channel", "match_value": "whatsapp_web", "priority": 0},
+        {"agent_id": agent_id, "channel": "*", "account_id": "*", "peer_id": "*", "priority": 0},
+        {"agent_id": agent_id, "channel": "whatsapp_web", "account_id": "*", "peer_id": "*", "priority": 0},
       ],
       "channels": channels,
       "auto_bridge": auto_bridge,

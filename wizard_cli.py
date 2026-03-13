@@ -8,7 +8,7 @@ import json
 
 from common.paths import WORKSPACE_DIR, STATE_DIR
 
-from message.config_runtime import CONFIG_PATH
+from config.config_runtime import CONFIG_PATH
 
 
 def ask(prompt: str, default: str = "") -> str:
@@ -23,7 +23,6 @@ def main() -> None:
   agent_id = ask("Agent ID", "luna")
   agent_name = ask("Agent 名称", "Luna")
   personality = ask("Agent 人设/性格描述", "")
-  dm_scope = ask("会话隔离级别 dm_scope (main/per-peer/per-channel-peer/per-account-channel-peer)", "per-peer")
 
   # WhatsApp Web channel
   enable_wa = ask("是否启用 WhatsApp Web 渠道? (y/n)", "y").lower().startswith("y")
@@ -56,13 +55,12 @@ def main() -> None:
         "name": agent_name,
         "personality": personality,
         "model": "",
-        "dm_scope": dm_scope,
       },
     ],
     "bindings": [
-      {"agent_id": agent_id, "tier": 5, "match_key": "default", "match_value": "*", "priority": 0},
+      {"agent_id": agent_id, "channel": "*", "account_id": "*", "peer_id": "*", "priority": 0},
       # 所有 whatsapp_web 消息默认为这个 agent
-      {"agent_id": agent_id, "tier": 4, "match_key": "channel", "match_value": "whatsapp_web", "priority": 0},
+      {"agent_id": agent_id, "channel": "whatsapp_web", "account_id": "*", "peer_id": "*", "priority": 0},
     ],
     "channels": channels,
     "auto_bridge": auto_bridge,

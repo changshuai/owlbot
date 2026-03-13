@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import asyncio, sys, threading
-from message.route_ import BindingTable, AgentManager, DEFAULT_AGENT_ID, build_session_key, normalize_agent_id
+from message.route_ import BindingTable, AgentManager
 from common.colors import DIM, RESET, BOLD, CYAN, GREEN, YELLOW, MAGENTA, BLUE, RED
 from message.route_ import setup_demo
 from agent.agent_loop import run_agent
@@ -42,7 +42,16 @@ def cmd_bindings(bt: BindingTable) -> None:
         print(f"  {DIM}(no bindings){RESET}"); return
     print(f"\n{BOLD}Route Bindings ({len(all_b)}):{RESET}")
     for b in all_b:
-        c = [MAGENTA, BLUE, CYAN, GREEN, DIM][min(b.tier - 1, 4)]
+        # 颜色按“具体程度”区分：peer > account > channel > global
+        spec = 0
+        if b.channel != "*":
+            spec += 1
+        if b.account_id != "*":
+            spec += 1
+        if b.peer_id != "*":
+            spec += 1
+        palette = [DIM, GREEN, CYAN, MAGENTA]
+        c = palette[min(spec, len(palette) - 1)]
         print(f"  {c}{b.display()}{RESET}")
     print()
 
@@ -66,7 +75,7 @@ def cmd_agents(mgr: AgentManager) -> None:
         print(f"  {DIM}(no agents){RESET}"); return
     print(f"\n{BOLD}Agents ({len(agents)}):{RESET}")
     for a in agents:
-        print(f"  {CYAN}{a.id}{RESET} ({a.name})  model={a.effective_model}  dm_scope={a.dm_scope}")
+        print(f"  {CYAN}{a.id}{RESET} ({a.name})  model={a.effective_model}")
         if a.personality:
             print(f"    {DIM}{a.personality[:70]}{'...' if len(a.personality) > 70 else ''}{RESET}")
     print()
@@ -91,7 +100,7 @@ def repl() -> None:
         auto_accounts = []
         write_simple_default()
     print(f"{DIM}{'=' * 64}{RESET}")
-    print(f"{DIM}  /bindings  /route <ch> <peer>  /agents  /sessions /gateway{RESET}")
+    print(f"{DIM}  /bindings  /route <ch> <peer>  /agents  /sessions /gateway(coming soon){RESET}")
     print()
 
     gw_started = False
@@ -105,7 +114,6 @@ def repl() -> None:
             bridge.start()
             print(f"{GREEN}Auto bridge started for: {[a.channel for a in auto_accounts]}{RESET}")
 
-    # CLI 也通过 MessageDispatcher 走同一套逻辑，只是输入循环在这里控制
     cli_channel = CLIChannel()
     cli_dispatcher = MessageCenter(mgr, bindings, [cli_channel], run_async_fn=run_async)
 
@@ -130,19 +138,18 @@ def repl() -> None:
                 cmd_agents(mgr)
             elif cmd == "/sessions":
                 cmd_sessions(mgr)
-            elif cmd == "/gateway":
-                if gw_started:
-                    print(f"  {DIM}Already running.{RESET}")
-                else:
-                    gw = GatewayServer(mgr, bindings)
-                    asyncio.run_coroutine_threadsafe(gw.start(), get_event_loop())
-                    print(f"{GREEN}Gateway running in background on ws://localhost:8765{RESET}\n")
-                    gw_started = True
+            # elif cmd == "/gateway":
+            #     if gw_started:
+            #         print(f"  {DIM}Already running.{RESET}")
+            #     else:
+            #         gw = GatewayServer(mgr, bindings)
+            #         asyncio.run_coroutine_threadsafe(gw.start(), get_event_loop())
+            #         print(f"{GREEN}Gateway running in background on ws://localhost:8765{RESET}\n")
+            #         gw_started = True
             else:
                 print(f"  {YELLOW}Unknown: {cmd}{RESET}")
             continue
 
-        # 普通文本输入：构造 InboundMessage，复用 MessageDispatcher 的 dispatch 逻辑
         msg = InboundMessage(
             text=user_input,
             sender_id="cli-user",

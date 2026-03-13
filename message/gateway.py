@@ -104,9 +104,7 @@ class GatewayServer:
         ch, pid = p.get("channel", "websocket"), p.get("peer_id", "ws-client")
         if p.get("agent_id"):
             aid = normalize_agent_id(p["agent_id"])
-            a = self._mgr.get_agent(aid)
-            sk = build_session_key(aid, channel=ch, peer_id=pid,
-                                   dm_scope=a.dm_scope if a else "per-peer")
+            sk = build_session_key(aid, channel=ch, peer_id=pid)
         else:
             aid, sk = resolve_route(self._bindings, self._mgr, ch, pid)
         reply = await run_agent(self._mgr, aid, sk, text, on_typing=self._typing_cb, channel=ch)
@@ -129,7 +127,7 @@ class GatewayServer:
 
     async def _m_agents(self, p: dict) -> list[dict]:
         return [{"id": a.id, "name": a.name, "model": a.effective_model,
-                 "dm_scope": a.dm_scope, "personality": a.personality}
+                 "personality": a.personality}
                 for a in self._mgr.list_agents()]
 
     async def _m_status(self, p: dict) -> dict:
