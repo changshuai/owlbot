@@ -34,13 +34,16 @@ def build_session_key(channel: str, account_id: str, peer_id: str) -> str:
     return f"agent:main:direct:{channel}:{peer_id}"
 
 
+## Channel manager -> channel instance from ChannelConfig
 class Channel(ABC):
     name: str = "unknown"
+    channel_config: ChannelConfig = field(default_factory=ChannelConfig)
 
     def __init__(self) -> None:
         # Optional callback set by MessageCenter; channels call this when they
         # have an InboundMessage ready (push-style).
         self._inbound_cb: Optional[Callable[[InboundMessage, "Channel"], None]] = None
+        self._connected_cb: Optional[Callable[["Channel"], None]] = None
 
     def set_inbound_callback(self, cb: Callable[[InboundMessage, "Channel"], None]) -> None:
         """Register a callback that will be invoked when this channel receives a message."""
@@ -50,6 +53,16 @@ class Channel(ABC):
         """Helper for channel implementations to push a new inbound message."""
         if self._inbound_cb:
             self._inbound_cb(msg, self)
+
+    ## Connected callback
+    def set_connected_callback(self, cb: Callable[["Channel"], None]) -> None:
+        """Register a callback that will be invoked when this channel is connected."""
+        self._connected_cb = cb
+
+    def _emit_connected(self, ch: Channel) -> None:
+        """Helper for channel implementations to push a new connected event."""
+        if self._connected_cb:
+            self._connected_cb(ch)
 
     @abstractmethod
     def receive(self) -> Optional[InboundMessage]: ...
@@ -64,28 +77,7 @@ class Channel(ABC):
 # CLIChannel
 # ---------------------------------------------------------------------------
 
-class CLIChannel(Channel):
-    name = "cli"
 
-    def __init__(self) -> None:
-        super().__init__()
-        self.account_id = "cli-local"
-
-    def receive(self) -> Optional[InboundMessage]:
-        try:
-            text = input(f"{CYAN}{BOLD}You > {RESET}").strip()
-        except (KeyboardInterrupt, EOFError):
-            return None
-        if not text:
-            return None
-        return InboundMessage(
-            text=text, sender_id="cli-user", channel="cli",
-            account_id=self.account_id, peer_id="cli-user",
-        )
-
-    def send(self, to: str, text: str, **kwargs: Any) -> bool:
-        logger.info(f"{GREEN}[CLI] -> {text}{RESET}")
-        return True
 
 
 # class ChannelManager:

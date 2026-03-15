@@ -11,7 +11,8 @@ from agent.agent_loop import MODEL_PROVIDER, MODEL_ID
 from message.gateway import GatewayServer
 from config.config_runtime import setup_from_config as setup_from_runtime_config, write_simple_default
 from channels.channel_manager import ChannelManager
-from channels.types_ import ChannelConfig, InboundMessage, CLIChannel
+from channels.types_ import ChannelConfig
+from channels.cli_ import CLIChannel
 from message.message_center import MessageCenter
 
 _event_loop: asyncio.AbstractEventLoop | None = None
@@ -91,31 +92,24 @@ def cmd_sessions(mgr: AgentManager) -> None:
 
 
 def repl() -> None:
-    # 如果有 runtime_config.json，就优先按配置启动；否则用 demo 配置并写一份简单模板
     cfg = setup_from_runtime_config()
     if cfg:
-        mgr, bindings, auto_accounts = cfg
+        mgr, bindings, channels = cfg
     else:
         mgr, bindings = setup_demo()
-        auto_accounts = []
+        channels = []
         write_simple_default()
     print(f"{DIM}{'=' * 64}{RESET}")
     print(f"{DIM}  /bindings  /route <ch> <peer>  /agents  /sessions /gateway(coming soon){RESET}")
     print()
 
-    gw_started = False
-
-    # 根据配置自动启动 bridge（如 whatsapp_web / cli）
-    if auto_accounts:
-        ch_mgr = ChannelManager()
-        channels_to_bridge = ch_mgr.build_from_accounts(auto_accounts)
-        if channels_to_bridge:
-            bridge = MessageCenter(mgr, bindings, channels_to_bridge, run_async_fn=run_async)
-            bridge.start()
-            print(f"{GREEN}Auto bridge started for: {[a.channel for a in auto_accounts]}{RESET}")
-
-    cli_channel = CLIChannel()
-    cli_dispatcher = MessageCenter(mgr, bindings, [cli_channel], run_async_fn=run_async)
+    # add cli channel
+    cli_channel = CLIChannel(ChannelConfig(channel="cli", account_id="cli-local"))
+    channels.append(cli_channel)
+    # start message center
+    message_center = MessageCenter(mgr, bindings, channels, run_async_fn=run_async)
+    message_center.start()
+    print(f"{GREEN}Message center started{RESET}")
 
     while True:
         try:
@@ -150,18 +144,8 @@ def repl() -> None:
                 print(f"  {YELLOW}Unknown: {cmd}{RESET}")
             continue
 
-        msg = InboundMessage(
-            text=user_input,
-            sender_id="cli-user",
-            channel="cli",
-            account_id=cli_channel.account_id,
-            peer_id="cli-user",
-        )
-        try:
-            cli_dispatcher.handle_message(msg, cli_channel)
-        except Exception as exc:
-            print(f"\n{RED}Error: {exc}{RESET}\n")
-
+        cli_channel.handle_message(user_input)
+        
 # ---------------------------------------------------------------------------
 # Entry Point
 # ---------------------------------------------------------------------------

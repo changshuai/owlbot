@@ -124,41 +124,27 @@ def build_session_key(
     account_id: str = "",
     peer_id: str = "",
 ) -> str:
-    """Build a normalized conversation/session key using 4 段式命名:
+    """
+    Session key is decouple with agent,
+    one agent can have multiple session keys.
+    Like: WhatsApp agent hanle all the message form whatsapp_web account. maybe from Master peer also be from other friends and groups.
+    
     {aid}-{channel}-{account}-{peer}.
 
-    约定：
-    - 有 peer_id 时，channel / account_id 必须是合法非空值；
-      会话粒度 = (agent, channel, account, peer)。
-    - 无 peer_id 时，根据是否有 account_id / channel 退化为更粗粒度会话：
-      - 有 channel + account_id   -> {aid}-{channel}-{account}-main
-      - 只有 channel              -> {aid}-{channel}-main-main
-      - 都没有                    -> {aid}-global-main-main
+
     """
     aid = normalize_agent_id(agent_id)
     ch = (channel or "").strip().lower()
     acc = (account_id or "").strip().lower()
     pid = (peer_id or "").strip().lower()
-
-    # 最常见：精确到某个对端（人 / 群）
+    if not ch or not acc:
+        raise ValueError(
+            f"build_session_key: channel, account_id and peer_id are required, channel='{ch}' account_id='{acc}' peer_id='{pid}'"
+        )
     if pid:
-        if not ch or not acc:
-            raise ValueError(
-                f"build_session_key: peer_id='{pid}' 需要非空的 channel/account_id，"
-                f"当前 channel='{ch}' account_id='{acc}'"
-            )
         return f"{aid}-{ch}-{acc}-{pid}"
-
-    # 退化：到账号级别（某渠道 + 某账号 的聚合会话）
-    if ch and acc:
-        return f"{aid}-{ch}-{acc}-main"
-
-    # 退化：到渠道级别（某渠道的聚合会话）
-    if ch:
-        return f"{aid}-{ch}-main-main"
-
-    # 最退化：全局级别（仅按 agent 聚合，用于全局记录）
-    return f"{aid}-global-main-main"
+    else:
+        return f"{aid}-{ch}-{acc}-main" # main mean all the messages from different peers in this same channel and account stored in one session.
 
 
 def resolve_route(bindings: BindingTable, mgr: AgentManager,
@@ -173,7 +159,8 @@ def resolve_route(bindings: BindingTable, mgr: AgentManager,
         print(f"  {DIM}[route] No binding matched, default: {agent_id}{RESET}")
     elif matched:
         print(f"  {DIM}[route] Matched: {matched.display()}{RESET}")
-    agent = mgr.get_agent(agent_id)
+    # agent = mgr.get_agent(agent_id)
+    
     sk = build_session_key(agent_id, channel=channel, account_id=account_id, peer_id=peer_id)
     return agent_id, sk
 

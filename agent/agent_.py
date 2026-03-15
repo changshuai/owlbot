@@ -43,7 +43,6 @@ class Agent:
         workspace_dir = self.get_agent_workspace()
         self.bootstrap_loader = BootstrapLoader(workspace_dir)
         self.skills_manager = SkillsManager(workspace_dir)
-        self.memory_store = get_memory_store(self.id)
 
     def system_prompt(self) -> str:
         parts = [f"You are {self.name}."]
@@ -72,11 +71,11 @@ class Agent:
             mem_md = self.bootstrap_loader.load_file("MEMORY.md").strip()
             parts: list[str] = []
             if mem_md:
-                parts.append(f"### Evergreen Memory\n\n{mem_md}")
+                parts.append(f"### Evergreen Memory\n{mem_md}")
             if memory_context:
                 parts.append(f"### Recalled Memories (auto-searched)\n\n{memory_context}")
             if parts:
-                sections.append("## Memory\n\n" + "\n".join(parts))
+                sections.append("## Memory\n" + "\n".join(parts))
             sections.append(
                 "## Memory Instructions\n\n"
                 "- Use memory.write to save important user facts and preferences.\n"
@@ -107,7 +106,7 @@ class Agent:
         if self.capacity == "full":
             soul = bootstrap.get("SOUL.md", "").strip()
             if soul:
-                sections.append(f"## Personality\n\n{soul}")
+                sections.append(f"## Personality\n{soul}")
 
         # Tools guidance
         # tools_md = bootstrap.get("TOOLS.md", "").strip()

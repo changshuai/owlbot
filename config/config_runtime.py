@@ -8,6 +8,8 @@ from common.paths import WORKSPACE_DIR
 from agent.agent_ import Agent, AgentManager
 from message.route_ import BindingTable, Binding
 from channels.types_ import ChannelConfig
+from channels.channel_manager import ChannelManager
+from channels.cli_ import CLIChannel
 
 CONFIG_PATH = WORKSPACE_DIR / "runtime_config.json"
 
@@ -30,7 +32,6 @@ def setup_from_config() -> Tuple[AgentManager, BindingTable, List[ChannelConfig]
         mgr.register(Agent(
             id=a.get("id", "main"),
             name=a.get("name", "Main"),
-            personality=a.get("personality", ""),
             model=a.get("model", ""),
         ))
 
@@ -60,10 +61,15 @@ def setup_from_config() -> Tuple[AgentManager, BindingTable, List[ChannelConfig]
             config=ch.get("config", {}) or {},
         )
         accounts.append(acc)
+    
+    ch_mgr = ChannelManager()
+    channels = ch_mgr.build_from_accounts(accounts) #TODO this should move to setup_from_config_file
+    # add cli channel
+    # channels.append(CLIChannel(ChannelConfig(channel="cli", account_id="cli-local")))
 
-    return mgr, bt, accounts
+    return mgr, bt, channels
 
-
+## 如何处理同一渠道 多个账户问题
 def write_simple_default(path: Path | None = None) -> None:
     """
     生成一份最简单的默认配置（单 agent + whatsapp_web），供第一次使用时参考。

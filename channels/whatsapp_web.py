@@ -71,6 +71,7 @@ class WhatsAppWebChannel(Channel):
                 "pip install neonize (and e.g. brew install libmagic on macOS)."
             )
         self.account_id = account.account_id
+        logger.info(f"{GREEN}[whatsapp_web] Account ID: {self.account_id}{RESET}")
 
         session_dir = account.config.get("session_path") or ""
         if not session_dir:
@@ -112,7 +113,13 @@ class WhatsAppWebChannel(Channel):
 
     def _on_connected(self, client: NewClient, _) -> None:
         self._ready.set()
-        logger.info(f"{GREEN}[whatsapp_web] Connected (session: {self._session_path}){RESET}")
+        logger.info(f"{GREEN}[whatsapp_web] Connected (session: {self._session_path}, account: {self.account_id}){RESET}")
+        if not self.account_id:
+            self.account_id = client.get_me().User
+            logger.info(f"{GREEN}[whatsapp_web] Account ID: {self.account_id}{RESET}")
+            self.channel_config.account_id = self.account_id
+        
+        self._emit_connected(self)
 
     def _on_message(self, client: NewClient, event) -> None:
         try:
@@ -228,13 +235,13 @@ class WhatsAppWebChannel(Channel):
         try:
             chat_jid = _jid_from_peer_id(to)
 
-            logger.info(f"{GREEN}[whatsapp_web] -> {text}{RESET}")
+            logger.info(f"{GREEN}[whatsapp_web]-> {text}{RESET}")
 
             for chunk in self._chunk(text):
                 client.send_message(chat_jid, chunk)
             return True
         except Exception as e:
-            logger.info(f"{RED}[whatsapp_web] send: {e}{RESET}")
+            logger.info(f"{RED}[whatsapp_web]: {e}{RESET}")
             return False
 
     def _chunk(self, text: str) -> list[str]:

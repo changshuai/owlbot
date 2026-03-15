@@ -87,6 +87,10 @@ class MessageCenter:
     def _on_channel_inbound(self, msg: InboundMessage, ch: Channel) -> None:
         """Callback invoked by channels when they receive a new InboundMessage."""
         self._queue.put((msg, ch))
+    
+    def _on_channel_connected(self, ch: Channel) -> None:
+        """Callback invoked by channels when they receive a new InboundMessage."""
+        self._queue.put((msg, ch))
 
     def dispatch(self, ch: Channel) -> None:
         """
@@ -140,7 +144,7 @@ class MessageCenter:
                     channel=msg.channel,
                 )
             )
-            ch.send(msg.peer_id, "[OwlBot]: " + (reply or ""))
+            ch.send(msg.peer_id, f"[{agent_id}]: " + (reply or ""))
         except Exception as e:
             logger.exception("MessageDispatcher dispatch %s: %s", msg.peer_id, e)
             try:

@@ -90,6 +90,40 @@ class ChannelManager:
         """Return the list of instantiated channels."""
         return list(self._channels)
 
+    def add_channel_from_config(self, account: ChannelConfig) -> Channel | None:
+        """
+        Create a channel from a single ChannelConfig and add it to the managed list.
+        Registers the builtin factory for the account's channel type if not already registered.
+        Returns the new channel, or None if the type is unsupported or construction fails.
+        """
+        ch_type = (account.channel or "").strip()
+        if not ch_type:
+            logger.warning("add_channel_from_config: account has no channel type")
+            return None
+        if ch_type not in self._factories:
+            self.register_builtin_channels([ch_type])
+        factory = self._factories.get(ch_type)
+        if not factory:
+            logger.info(
+                "No channel factory for type '%s'; skipping account_id=%s",
+                ch_type,
+                getattr(account, "account_id", ""),
+            )
+            return None
+        try:
+            ch = factory(account)
+        except Exception as exc:
+            logger.error(
+                "Failed to construct channel '%s' (%s): %s",
+                ch_type,
+                getattr(account, "account_id", ""),
+                exc,
+            )
+            return None
+        self._channels.append(ch)
+        logger.info("Channel added: %s (%s)", ch_type, getattr(account, "account_id", ""))
+        return ch
+
     def build_from_accounts(self, accounts: List[ChannelConfig]) -> List[Channel]:
         """
         Given a list of ChannelConfig configs, register needed factories
