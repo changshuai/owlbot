@@ -5,7 +5,8 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 from .memory_store import get_memory_store
-from common.paths import WORKSPACE_DIR
+from .skill_manager import SkillLoader
+from common.paths import WORKSPACE_DIR, SKILLS_DIR
 
 import subprocess
 import logging
@@ -93,6 +94,23 @@ TOOLS = [
                 },
             },
             "required": ["action"],
+        },
+    },
+    {
+        "name": "skill",
+        "description": (
+            "Load the full content of a named skill from the current agent's skills directory. "
+            "Use this when you see a skill listed in the system prompt and need its detailed instructions."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "name": {
+                    "type": "string",
+                    "description": "The skill name exactly as listed in 'Skills available'.",
+                },
+            },
+            "required": ["name"],
         },
     },
 ]
@@ -275,10 +293,33 @@ def _tool_memory(
     return "\n".join(lines)
 
 
+def _tool_skill(
+    name: str,
+    tool_ctx: dict[str, Any] | None = None,
+) -> str:
+    """
+    Load full SKILL.md body by skill name.
+
+    Uses global skills plus per-agent private skills under workspace-<agent_id>/skills.
+    """
+    ctx = tool_ctx or {}
+    agent_id = ctx.get("agent_id") or "default"
+    role = ctx.get("role") or "general"
+
+    # Role-based skills + per-agent private skills
+    role_skills_dir = SKILLS_DIR / "roles" / role
+    private_skills_dir = WORKSPACE_DIR / f"workspace-{agent_id}" / "skills"
+    extra_dirs = [role_skills_dir, private_skills_dir]
+
+    loader = SkillLoader(extra_dirs=extra_dirs)
+    return loader.get_content(name)
+
+
 TOOL_HANDLERS: dict[str, Any] = {
     "fileOps": _tool_file,
     "bash": _tool_bash,
     "memory": _tool_memory,
+    "skill": _tool_skill,
 }
 
 

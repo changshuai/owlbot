@@ -52,7 +52,12 @@ async def run_agent(
         if on_typing:
             on_typing(agent_id, True)
         try:
-            tool_ctx = {"agent_id": agent_id, "channel": channel, "session_key": session_key}
+            tool_ctx = {
+                "agent_id": agent_id,
+                "channel": channel,
+                "session_key": session_key,
+                "role": getattr(agent, "role", "general"),
+            }
             return await _agent_loop(agent.model, system_prompt, messages, tool_ctx=tool_ctx)
         finally:
             if on_typing:

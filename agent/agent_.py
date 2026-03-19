@@ -1,10 +1,10 @@
 from dataclasses import dataclass
-from common.paths import AGENTS_DIR, WORKSPACE_DIR
+from common.paths import AGENTS_DIR, WORKSPACE_DIR, SKILLS_DIR
 import re
 from pathlib import Path
 from typing import Optional, Any
 from agent.memory_store import get_memory_store
-from agent.skill_manager import SkillsManager
+from agent.skill_manager import SkillLoader
 from config.bootstrap_loader import BootstrapLoader
 
 ## Valid ID Regex
@@ -35,14 +35,21 @@ class Agent:
     name: str
     model: str = ""
     capacity: str = "full"
-    
-    def __init__(self, id: str, name: str, personality: str = "", model: str = "") -> None:
+    role: str = "general"
+
+    def __init__(self, id: str, name: str, personality: str = "", model: str = "", role: str = "general") -> None:
         self.id = normalize_agent_id(id)
         self.name = name
         self.model = model or "deepseek/deepseek-chat"
+        self.role = role
         workspace_dir = self.get_agent_workspace()
         self.bootstrap_loader = BootstrapLoader(workspace_dir)
-        self.skills_manager = SkillsManager(workspace_dir)
+
+        # Global skills + role-based skills + per-agent private skills.
+        role_skills_dir = SKILLS_DIR / "roles" / self.role
+        private_skills_dir = workspace_dir / "skills"
+        extra_dirs = [role_skills_dir, private_skills_dir]
+        self.skill_loader = SkillLoader(extra_dirs=extra_dirs)
 
     def system_prompt(self) -> str:
         parts = [f"You are {self.name}."]
@@ -114,12 +121,14 @@ class Agent:
         #     sections.append(f"## Tool Usage Guidelines\n\n{tools_md}")
 
         # Skills
-        skills_mgr = self.skills_manager
-        extra_dirs = [WORKSPACE_DIR / "skills"]
-        skills_mgr.discover(extra_dirs=[d for d in extra_dirs if d.is_dir()])
-        skills_block = skills_mgr.format_prompt_block()
-        if self.capacity == "full" and skills_block:
-            sections.append(skills_block)
+        skills_descriptions = self.skill_loader.get_descriptions()
+        if self.capacity == "full" and skills_descriptions:
+            sections.append(
+                "## Skills available:\n"
+                f"{skills_descriptions}\n\n"
+                "When you need the detailed instructions for a specific skill, "
+                "call the `skill` tool with the exact skill name from the list above."
+            )
 
         # Memory
         sections.extend(self._build_memory_prompt(last_user_message))
