@@ -64,12 +64,18 @@ class Agent:
         ws.mkdir(parents=True, exist_ok=True)
         return ws
 
-    def _build_memory_prompt(self, last_user_message: str = "") -> str:
+    def _build_memory_prompt(
+        self, last_user_message: str = "", session_key: str = ""
+    ) -> str:
          # Memory auto-recall based on the latest user message
         memory_store = get_memory_store(self.id)
         memory_context = ""
         if last_user_message:
-            recalled = memory_store.hybrid_search(last_user_message, top_k=3)
+            recalled = memory_store.hybrid_search(
+                last_user_message,
+                top_k=3,
+                session_key=session_key,
+            )
             memory_context = _format_recalled(recalled)
 
         sections: list[str] = []
@@ -95,6 +101,7 @@ class Agent:
         *,
         channel: str = "cli",
         last_user_message: str = "",
+        session_key: str = "",
     ) -> str:
         """
         Build a rich, per-turn system prompt for the given agent.
@@ -131,7 +138,12 @@ class Agent:
             )
 
         # Memory
-        sections.extend(self._build_memory_prompt(last_user_message))
+        sections.extend(
+            self._build_memory_prompt(
+                last_user_message,
+                session_key=session_key,
+            )
+        )
 
         # # Bootstrap context (remaining files)
         # if self.capacity in ("full", "minimal"):

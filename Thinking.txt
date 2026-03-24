@@ -1,0 +1,28 @@
+
+#。 
+#. Agent 是什么
+   Agent 用来包装 context ,tool, skills 等 做LLM 配套加强的工作。
+   ## How to build the sysmte prompt
+   1. System prompt, boostrap load to load the file by real time, boostrap/identity/soul
+      load memory, 
+
+   2. Session, Agentmanager manage the instance of Agent and Session.
+      one agent work with multiple sesssions, one session represent message list.
+      Session 就是 对话历史，一些用户的信息，和状态。
+      Session 上下文边界/隔离用户的/状态（state）。
+      如何进行压缩？
+
+   3. Context: construct context in the run_loop as parater into run_loop
+      Context include message list/ system prompt/ tools
+      Context 是每一次给LLM看到的东西。
+
+      所以， 一个context中包含一个session中的内容，根据需要从session中提取，目前是放整个Message.
+      Context 的 system prompt， 是通过 agent的 identity.md/soul/skill/memory/来build 出来的
+      但一个问题：同一个agent 经过多个session 之后，会产生记忆，那么这些记忆 可能会来自不同的session，也就意味着：
+      可能来自不同的用户。不同的渠道等。
+
+
+
+#. Message center 主要做 消息 中心的，将所有的消息 汇总分发 给不同的Agent，根据 binding关系，route消息。
+
+3. 

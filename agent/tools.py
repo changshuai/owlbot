@@ -277,16 +277,25 @@ def _tool_memory(
 
     ctx = tool_ctx or {}
     agent_id = ctx.get("agent_id") or "default"
+    session_key = ctx.get("session_key") or ""
     store = get_memory_store(agent_id)
 
     if act == "write":
         if not (content or "").strip():
             return "Error: memory write requires non-empty 'content'."
-        return store.write_memory(content.strip(), category or "general")
+        return store.write_memory(
+            content.strip(),
+            category or "general",
+            session_key=session_key,
+        )
     # search
     if not (query or "").strip():
         return "Error: memory search requires non-empty 'query'."
-    results = store.hybrid_search(query.strip(), top_k=max(1, min(top_k, 20)))
+    results = store.hybrid_search(
+        query.strip(),
+        top_k=max(1, min(top_k, 20)),
+        session_key=session_key,
+    )
     if not results:
         return "No relevant memories found."
     lines = [f"[{r['path']}] (score: {r['score']}) {r['snippet']}" for r in results]

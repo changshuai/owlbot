@@ -14,27 +14,45 @@ class MemoryStore:
     Per-agent memory store.
 
     - Evergreen facts: MEMORY.md in the agent workspace root.
-    - Daily logs: memory/daily/YYYY-MM-DD.jsonl
+    - Session-scoped logs: memory/<session_key>/YYYY-MM-DD.jsonl
     - Hybrid search: keyword TF-IDF + hash-based vector, temporal decay, MMR.
     """
 
     def __init__(self, workspace_dir: Path) -> None:
         self.workspace_dir = workspace_dir
-        self.memory_dir = workspace_dir / "memory" / "daily"
-        self.memory_dir.mkdir(parents=True, exist_ok=True)
+        self.memory_root = workspace_dir / "memory"
+        self.memory_root.mkdir(parents=True, exist_ok=True)
 
-    def write_memory(self, content: str, category: str = "general") -> str:
+    @staticmethod
+    def _safe_session_key(session_key: str) -> str:
+        key = (session_key or "").strip()
+        if not key:
+            key = "default-session"
+        safe = re.sub(r"[^a-zA-Z0-9._-]+", "_", key).strip("._-")
+        return safe or "default-session"
+
+    def _session_memory_dir(self, session_key: str) -> Path:
+        session_dir = self.memory_root / self._safe_session_key(session_key)
+        session_dir.mkdir(parents=True, exist_ok=True)
+        return session_dir
+
+    def write_memory(
+        self, content: str, category: str = "general", session_key: str = ""
+    ) -> str:
         today = datetime.now(timezone.utc).strftime("%Y-%m-%d")
-        path = self.memory_dir / f"{today}.jsonl"
+        session_dir = self._session_memory_dir(session_key)
+        path = session_dir / f"{today}.jsonl"
         entry = {
             "ts": datetime.now(timezone.utc).isoformat(),
             "category": category,
             "content": content,
+            "session_key": session_key,
         }
         try:
             with open(path, "a", encoding="utf-8") as f:
                 f.write(json.dumps(entry, ensure_ascii=False) + "\n")
-            return f"Memory saved to {today}.jsonl ({category})"
+            safe_session = self._safe_session_key(session_key)
+            return f"Memory saved to memory/{safe_session}/{today}.jsonl ({category})"
         except Exception as exc:
             return f"Error writing memory: {exc}"
 
@@ -47,7 +65,7 @@ class MemoryStore:
         except Exception:
             return ""
 
-    def _load_all_chunks(self) -> list[dict[str, str]]:
+    def _load_all_chunks(self, session_key: str = "") -> list[dict[str, str]]:
         chunks: list[dict[str, str]] = []
         evergreen = self.load_evergreen()
         if evergreen:
@@ -55,8 +73,9 @@ class MemoryStore:
                 para = para.strip()
                 if para:
                     chunks.append({"path": "MEMORY.md", "text": para})
-        if self.memory_dir.is_dir():
-            for jf in sorted(self.memory_dir.glob("*.jsonl")):
+        session_dir = self._session_memory_dir(session_key)
+        if session_dir.is_dir():
+            for jf in sorted(session_dir.glob("*.jsonl")):
                 try:
                     for line in jf.read_text(encoding="utf-8").splitlines():
                         line = line.strip()
@@ -77,8 +96,10 @@ class MemoryStore:
         tokens = re.findall(r"[a-z0-9\u4e00-\u9fff]+", text.lower())
         return [t for t in tokens if len(t) > 1 or "\u4e00" <= t <= "\u9fff"]
 
-    def search_memory(self, query: str, top_k: int = 5) -> list[dict[str, Any]]:
-        chunks = self._load_all_chunks()
+    def search_memory(
+        self, query: str, top_k: int = 5, session_key: str = ""
+    ) -> list[dict[str, Any]]:
+        chunks = self._load_all_chunks(session_key=session_key)
         if not chunks:
             return []
         query_tokens = self._tokenize(query)
@@ -287,8 +308,10 @@ class MemoryStore:
             reranked.append(results[best_idx])
         return reranked
 
-    def hybrid_search(self, query: str, top_k: int = 5) -> list[dict[str, Any]]:
-        chunks = self._load_all_chunks()
+    def hybrid_search(
+        self, query: str, top_k: int = 5, session_key: str = ""
+    ) -> list[dict[str, Any]]:
+        chunks = self._load_all_chunks(session_key=session_key)
         if not chunks:
             return []
         keyword_results = self._keyword_search(query, chunks, top_k=10)
@@ -310,11 +333,10 @@ class MemoryStore:
             )
         return result
 
-    def get_stats(self) -> dict[str, Any]:
+    def get_stats(self, session_key: str = "") -> dict[str, Any]:
         evergreen = self.load_evergreen()
-        daily_files = (
-            list(self.memory_dir.glob("*.jsonl")) if self.memory_dir.is_dir() else []
-        )
+        session_dir = self._session_memory_dir(session_key)
+        daily_files = list(session_dir.glob("*.jsonl")) if session_dir.is_dir() else []
         total_entries = 0
         for f in daily_files:
             try:

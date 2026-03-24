@@ -46,6 +46,7 @@ async def run_agent(
     system_prompt = agent.build_system_prompt_for_agent(
         channel=channel,
         last_user_message=user_text,
+        session_key=session_key,
     )
 
     async with _agent_semaphore:
