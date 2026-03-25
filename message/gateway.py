@@ -8,7 +8,8 @@ from .route_ import (
     normalize_agent_id,
 )
 from .route_ import resolve_route
-from agent.agent_loop import run_agent
+from agent.agent_loop import AgentAbortController, run_agent
+from common.colors import GREEN, RED, RESET
 import json, asyncio, time, logging
 from typing import Any, Dict, List, Optional
 
@@ -27,6 +28,8 @@ class GatewayServer:
         self._start_time = time.monotonic()
         self._server: Any = None
         self._running = False
+        # Latest in-flight run_agent per session_key (for JSON-RPC abort).
+        self._abort_by_session: dict[str, AgentAbortController] = {}
 
     async def start(self) -> None:
         try:
@@ -78,6 +81,24 @@ class GatewayServer:
             except Exception:
                 self._clients.discard(ws)
 
+    def _event_cb(self, agent_id: str, event: dict) -> None:
+        """Forward agent loop stream events to websocket clients."""
+        msg = json.dumps(
+            {
+                "jsonrpc": "2.0",
+                "method": "agent.event",
+                "params": {
+                    "agent_id": agent_id,
+                    "event": event,
+                },
+            }
+        )
+        for ws in list(self._clients):
+            try:
+                asyncio.ensure_future(ws.send(msg))
+            except Exception:
+                self._clients.discard(ws)
+
     async def _message(self, raw: str) -> dict | None:
         try:
             req = json.loads(raw)
@@ -85,9 +106,13 @@ class GatewayServer:
             return {"jsonrpc": "2.0", "error": {"code": -32700, "message": "Parse error"}, "id": None}
         rid, method, params = req.get("id"), req.get("method", ""), req.get("params", {})
         methods = {
-            "send": self._m_send, "bindings.set": self._m_bind_set,
-            "bindings.list": self._m_bind_list, "sessions.list": self._m_sessions,
-            "agents.list": self._m_agents, "status": self._m_status,
+            "send": self._m_send,
+            "abort": self._m_abort,
+            "bindings.set": self._m_bind_set,
+            "bindings.list": self._m_bind_list,
+            "sessions.list": self._m_sessions,
+            "agents.list": self._m_agents,
+            "status": self._m_status,
         }
         handler = methods.get(method)
         if not handler:
@@ -107,8 +132,33 @@ class GatewayServer:
             sk = build_session_key(aid, channel=ch, peer_id=pid)
         else:
             aid, sk = resolve_route(self._bindings, self._mgr, ch, pid)
-        reply = await run_agent(self._mgr, aid, sk, text, on_typing=self._typing_cb, channel=ch)
+        ctrl = AgentAbortController()
+        self._abort_by_session[sk] = ctrl
+        try:
+            reply = await run_agent(
+                self._mgr,
+                aid,
+                sk,
+                text,
+                on_typing=self._typing_cb,
+                on_event=lambda ev, _aid=aid: self._event_cb(_aid, ev),
+                channel=ch,
+                abort_signal=ctrl.signal,
+            )
+        finally:
+            self._abort_by_session.pop(sk, None)
         return {"agent_id": aid, "session_key": sk, "reply": reply}
+
+    async def _m_abort(self, p: dict) -> dict:
+        """Request cooperative cancel of the in-flight run_agent for this session_key."""
+        sk = (p.get("session_key") or "").strip()
+        if not sk:
+            raise ValueError("session_key is required")
+        ctrl = self._abort_by_session.get(sk)
+        if not ctrl:
+            return {"ok": False, "reason": "no active run for session"}
+        ctrl.abort()
+        return {"ok": True}
 
     async def _m_bind_set(self, p: dict) -> dict:
         b = Binding(agent_id=normalize_agent_id(p.get("agent_id", "")),

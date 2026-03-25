@@ -70,6 +70,13 @@ class Channel(ABC):
     @abstractmethod
     def send(self, to: str, text: str, **kwargs: Any) -> bool: ...
 
+    # Optional streaming hooks; channels can override when supported.
+    def send_stream_delta(self, to: str, delta: str, **kwargs: Any) -> bool:
+        return False
+
+    def send_event(self, to: str, event: dict[str, Any], **kwargs: Any) -> bool:
+        return False
+
     def close(self) -> None:
         pass
 

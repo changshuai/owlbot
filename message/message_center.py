@@ -89,8 +89,8 @@ class MessageCenter:
         self._queue.put((msg, ch))
     
     def _on_channel_connected(self, ch: Channel) -> None:
-        """Callback invoked by channels when they receive a new InboundMessage."""
-        self._queue.put((msg, ch))
+        """Callback invoked by channels when they are connected."""
+        logger.info("channel connected: %s", getattr(ch, "name", ch))
 
     def dispatch(self, ch: Channel) -> None:
         """
@@ -134,6 +134,24 @@ class MessageCenter:
                             # Typing indicator failures should not break message handling
                             logger.debug("send_typing failed for %s", peer_id)
 
+            ## TODO：Stream output
+            # Optional upstream event callback for channels that support streaming deltas.
+            # If a channel does not implement send_stream_delta/send_event, this is a no-op.
+            def on_event_cb(ev: dict, peer_id: str = msg.peer_id, channel: Channel = ch) -> None:
+                try:
+                    if ev.get("type") == "message_update":
+                        delta = ev.get("delta")
+                        if delta is None:
+                            assistant_ev = ev.get("assistant_message_event") or {}
+                            if assistant_ev.get("type") == "text_delta":
+                                delta = assistant_ev.get("delta", "")
+                        if delta and getattr(channel, "send_stream_delta", None):
+                            channel.send_stream_delta(peer_id, delta)
+                    if getattr(channel, "send_event", None):
+                        channel.send_event(peer_id, ev)
+                except Exception:
+                    logger.debug("stream event forwarding failed")
+
             reply = self._run_async(
                 run_agent(
                     self._mgr,
@@ -141,6 +159,7 @@ class MessageCenter:
                     session_key,
                     msg.text,
                     on_typing=on_typing_cb,
+                    on_event=on_event_cb,
                     channel=msg.channel,
                 )
             )
