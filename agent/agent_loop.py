@@ -1,16 +1,34 @@
 from __future__ import annotations
 
 import asyncio
+import json
 import os
 import time
 from typing import Any, AsyncIterator
 
-from LLMs import Context, get_env_api_key, get_model
+from LLMs import Context
 from .agent_ import AgentManager
 from .agent_abort import abort_requested, AgentAbortController
 from .message_validator import extract_text_from_message, validate_session_messages
 from .tools import TOOLS_LLM, process_tool_call
-from common.colors import DIM, RESET, BOLD, GREEN, YELLOW
+from .context_compaction import (
+    TOOL_RESULT_MAX_CHARS,
+    estimate_context_chars,
+    get_model_for_id,
+    latest_user_text,
+    maybe_trim_history_for_budget,
+    shrink_tool_result_text,
+)
+from common.colors import (
+    BLUE,
+    BOLD,
+    CYAN,
+    DIM,
+    GREEN,
+    MAGENTA,
+    RESET,
+    YELLOW,
+)
 
 import logging
 logger = logging.getLogger(__name__)
@@ -28,8 +46,61 @@ _agent_semaphore: asyncio.Semaphore | None = None
 
 
 def _get_model_for_id(model_id: str):
-    """Return LLM Model for the given model id (uses MODEL_PROVIDER for provider)."""
-    return get_model(MODEL_PROVIDER, model_id, api_key=get_env_api_key(MODEL_PROVIDER))
+    """Delegate to context_compaction so tests can patch `get_model_for_id` on that module."""
+    return get_model_for_id(model_id)
+
+
+def _messages_without_trailing_assistant(messages: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    if messages and isinstance(messages[-1], dict) and messages[-1].get("role") == "assistant":
+        return messages[:-1]
+    return messages
+
+
+def _tool_schema_chars(tools: list[Any] | None) -> int:
+    if not tools:
+        return 0
+    return len(json.dumps(tools, ensure_ascii=False))
+
+
+def _log_round_token_usage(
+    round_no: int,
+    system: str,
+    messages: list[dict[str, Any]],
+    final_message: dict[str, Any],
+    *,
+    tools: list[Any] | None,
+) -> None:
+    """Log per model round: API usage when present, else rough token estimate (~4 chars/token)."""
+    usage = final_message.get("usage")
+    if not isinstance(usage, dict):
+        usage = {}
+    inp = int(usage.get("input") or 0)
+    out_tok = int(usage.get("output") or 0)
+    total_api = int(usage.get("totalTokens") or 0)
+    estimated = False
+    if inp == 0 and out_tok == 0:
+        estimated = True
+        prompt_msgs = _messages_without_trailing_assistant(messages)
+        inp = max(
+            1,
+            (estimate_context_chars(system, prompt_msgs) + _tool_schema_chars(tools)) // 4,
+        )
+        comp_chars = len(extract_text_from_message(final_message))
+        for block in final_message.get("content") or []:
+            if isinstance(block, dict) and block.get("type") == "toolCall":
+                comp_chars += len(json.dumps(block.get("arguments") or {}, ensure_ascii=False))
+        out_tok = max(1, comp_chars // 4)
+        total_api = inp + out_tok
+    elif total_api == 0:
+        total_api = inp + out_tok
+
+    tag = f"{DIM}(estimated){RESET}" if estimated else f"{DIM}(API){RESET}"
+    logger.info(
+        f"{CYAN}{BOLD}[round {round_no}] tokens{RESET} {tag}: "
+        f"{GREEN}prompt {inp}{RESET} + {BLUE}completion {out_tok}{RESET} = "
+        f"{MAGENTA}{BOLD}total {total_api}{RESET}"
+    )
+
 
 async def run_agent(
     mgr: AgentManager,
@@ -47,7 +118,7 @@ async def run_agent(
     agent = mgr.get_agent(agent_id)
     if not agent:
         return f"Error: agent '{agent_id}' not found"
-    messages = mgr.get_session(session_key)
+    messages = mgr.get_session(session_key, agent_id=agent_id)
     messages.append({"role": "user", "content": user_text, "timestamp": int(time.time() * 1000)})
 
     # Build dynamic per-turn system prompt for this agent.
@@ -66,6 +137,7 @@ async def run_agent(
                 "channel": channel,
                 "session_key": session_key,
                 "role": getattr(agent, "role", "general"),
+                "_mgr": mgr,
             }
             return await _run_agent(
                 agent.model,
@@ -78,6 +150,12 @@ async def run_agent(
         finally:
             if on_typing:
                 on_typing(agent_id, False)
+            try:
+                from .session_store import save_chat_session
+
+                save_chat_session(agent_id, session_key, messages)
+            except Exception:
+                logger.debug("save_chat_session failed", exc_info=True)
 
 
 async def _execute_tool_calls(
@@ -90,10 +168,23 @@ async def _execute_tool_calls(
     """Execute all toolCall blocks from an assistant message and emit tool events."""
     content = assistant_message.get("content") or []
     tool_calls = [c for c in content if isinstance(c, dict) and c.get("type") == "toolCall"]
-    for block in tool_calls:
+
+    # Providers/streams may duplicate the same toolCall block (same id). De-dup by id while
+    # preserving order to prevent repeated execution and log spam.
+    seen_ids: set[str] = set()
+    deduped: list[dict[str, Any]] = []
+    for c in tool_calls:
+        tid = str(c.get("id", "") or "")
+        if tid and tid in seen_ids:
+            continue
+        if tid:
+            seen_ids.add(tid)
+        deduped.append(c)
+
+    for block in deduped:
         if abort_requested(abort_signal):
             break
-        name = block.get("name", "")
+        name = str(block.get("name", "") or "").strip()
         bid = block.get("id", "")
         args = block.get("arguments", {}) or {}
 
@@ -114,12 +205,23 @@ async def _execute_tool_calls(
             body = f"Error: {exc}"
             is_error = True
 
+        output_body = body
+        shrink_method = "none"
+        if isinstance(body, str) and len(body) > TOOL_RESULT_MAX_CHARS:
+            output_body, shrink_method = await shrink_tool_result_text(
+                tool_name=name,
+                raw_text=body,
+                user_question=latest_user_text(messages),
+            )
+
         tool_result_msg: dict[str, Any] = {
             "role": "toolResult",
             "toolCallId": bid,
             "toolName": name,
-            "content": [{"type": "text", "text": body}],
-            "details": {},
+            "content": [{"type": "text", "text": output_body}],
+            "details": {
+                "shrink_method": shrink_method,
+            },
             "isError": is_error,
             "timestamp": int(time.time() * 1000),
         }
@@ -152,7 +254,7 @@ async def _agent_loop(
     model = _get_model_for_id(model_id)
     yield {"type": "model_start", "run_begin": True}
 
-    for _ in range(MAX_AGENT_TOOL_ROUNDS):
+    for round_no in range(1, MAX_AGENT_TOOL_ROUNDS + 1):
         if abort_requested(abort_signal):
             yield {
                 "type": "model_end",
@@ -164,6 +266,9 @@ async def _agent_loop(
 
         validate_session_messages(messages)
 
+        await maybe_trim_history_for_budget(model_id, system, messages, tool_ctx=tool_ctx)
+
+        # 判断 message中 最后一条是否是 toolResult, 如果有，添加 toolresutl处理的prompt.
         context = Context(messages=messages, system_prompt=system, tools=TOOLS_LLM)
         logger.info(f"System Prompt:\n {context.system_prompt}")
 
@@ -235,6 +340,8 @@ async def _agent_loop(
 
         if final_message is None:
             break
+
+        _log_round_token_usage(round_no, system, messages, final_message, tools=TOOLS_LLM)
 
         stop_reason = final_message.get("stopReason") or "stop"
         if stop_reason in ("error", "aborted"):

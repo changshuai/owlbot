@@ -1,0 +1,5 @@
+This is line 1 of our long context test file.
+Line 2 contains more test data.
+Line 3 shows we can handle multiple lines.
+Line 4 demonstrates file persistence.
+Line 5 confirms everything is working.

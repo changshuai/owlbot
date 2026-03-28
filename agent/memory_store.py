@@ -15,6 +15,7 @@ class MemoryStore:
 
     - Evergreen facts: MEMORY.md in the agent workspace root.
     - Session-scoped logs: memory/<session_key>/YYYY-MM-DD.jsonl
+    - Context trim snapshots: memory/<session_key>/context_archive_<ts>.jsonl (excluded from hybrid search)
     - Hybrid search: keyword TF-IDF + hash-based vector, temporal decay, MMR.
     """
 
@@ -35,6 +36,24 @@ class MemoryStore:
         session_dir = self.memory_root / self._safe_session_key(session_key)
         session_dir.mkdir(parents=True, exist_ok=True)
         return session_dir
+
+    def archive_messages(self, session_key: str, messages: list[dict[str, Any]]) -> str:
+        """
+        Persist removed session messages for context-window trimming.
+
+        Returns a workspace-relative reference like memory/<safe_session>/context_archive_<ts>.jsonl
+        """
+        ts = datetime.now(timezone.utc).strftime("%Y%m%d_%H%M%S_%f")
+        session_dir = self._session_memory_dir(session_key)
+        path = session_dir / f"context_archive_{ts}.jsonl"
+        try:
+            with open(path, "w", encoding="utf-8") as f:
+                for m in messages:
+                    f.write(json.dumps(m, ensure_ascii=False, default=str) + "\n")
+            safe_session = self._safe_session_key(session_key)
+            return f"memory/{safe_session}/{path.name}"
+        except Exception as exc:
+            return f"Error writing archive: {exc}"
 
     def write_memory(
         self, content: str, category: str = "general", session_key: str = ""
@@ -76,6 +95,8 @@ class MemoryStore:
         session_dir = self._session_memory_dir(session_key)
         if session_dir.is_dir():
             for jf in sorted(session_dir.glob("*.jsonl")):
+                if jf.name.startswith("context_archive_"):
+                    continue
                 try:
                     for line in jf.read_text(encoding="utf-8").splitlines():
                         line = line.strip()
@@ -336,7 +357,11 @@ class MemoryStore:
     def get_stats(self, session_key: str = "") -> dict[str, Any]:
         evergreen = self.load_evergreen()
         session_dir = self._session_memory_dir(session_key)
-        daily_files = list(session_dir.glob("*.jsonl")) if session_dir.is_dir() else []
+        daily_files = [
+            f
+            for f in (session_dir.glob("*.jsonl") if session_dir.is_dir() else [])
+            if not f.name.startswith("context_archive_")
+        ]
         total_entries = 0
         for f in daily_files:
             try:

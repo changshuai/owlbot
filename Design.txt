@@ -1,0 +1,58 @@
+
+#。 
+#. Agent 是什么
+   Agent 用来包装 context ,tool, skills 等 做LLM 配套加强的工作。
+   ## How to build the sysmte prompt
+   1. System prompt, boostrap load to load the file by real time, boostrap/identity/soul
+      load memory, 
+
+   2. Session： Agentmanager manage the instance of Agent and Session.
+      one agent work with multiple sesssions, one session represent message list.
+      Session 就是 对话历史，一些用户的信息，和状态。
+      Session 上下文边界/隔离用户的/状态（state）。
+      如何进行压缩？
+
+   3. Context: construct context in the run_loop as parater into run_loop
+      Context include message list/ system prompt/ user/ Assistant/tool result
+      Context 是每一次给LLM看到的东西。
+
+      所以， 一个context中包含 session中的内容，根据 需求 从session中提取，目前是放整个Message.
+      Context中的 system prompt， 是通过 agent的 identity.md/soul/skill/memory/来build 出来的
+      
+   4. Memory：同一个agent 经过多个session 之后，会产生记忆，那么这些记忆 可能会来自不同的session，也就意味着：
+      可能来自不同的用户。不同的渠道等。 长久记忆 逻辑上是可以 跨 用户，跨session的。 但短期记忆 有不能 跨太多内容。
+      所以短期记忆与 session 相关。
+      两种长期记忆 类别：
+      ** MEMORY.md（evergreen）：放在 workspace-<agent_id>/MEMORY.md，一般用于稳定的“长期事实/偏好/规则”（目前由你维护或未来可由工具写入）。
+      ** Session 隔离的 JSONL 记忆（diary）：当模型调用 memory.write(content, category) 时，会把 content/category/ts/session_key 追加写到
+         目录：memory/<safe_session_key>/
+         文件：<YYYY-MM-DD>.jsonl
+         luna-whatsapp_web-owlbot-default-120363154648184511_newsletter
+
+   5. tool result:
+      1. 对于单次的tool result, 判断大小，是否超过单次 token的限制，如果是那么 有两种方式，第一直接截断，保留开始一部分 和最后一部分，比例各一半。
+         第二，使用另外一个模型进行总结缩小，这种方式需要 配置一个轻量本地的高效模型，如果没有则默认使用第一种方式。（之后可以留作一个配置项）
+      2. 对于Message history，从后往前 计算，超过 模型 更好理解的 上下文 大小 的进行删除。删除的消息进行存档，并对于删除的消息添加一个占位log在mssage list中，
+         这个log相当于一个历史路径（见 memory 目录下 JSONL 存档）。注意 system prompt 在 Context 里单独传递，不在 messages 列表中。删除前缀后 tool call / toolResult 必须仍成对合法。
+      Notes： 
+         保持在这个区间可以兼顾“记忆力”和“推理效率”：
+         建议上限：保持最近的 10 - 15 轮（Turn） 完整对话（一轮包含 User + Assistant + Tool Call + Tool Result）。
+         Token 总量建议：总 Context 维持在 8,000 - 16,000 Tokens 左右。
+         理由：这是目前大多数模型（如 GPT-4o）处理逻辑最敏捷的区间。超过这个量级，首字延迟（TTFT）会明显增加，且推理成本会随轮数呈平方级增长。
+         策略建议：
+         强制保留：System Prompt（永远放在 Index 0）。
+         滑动删除：当总 Token 超过 16K 时，删除掉 System Prompt 之后最早的一对对话。
+         重要性评估：如果某次 Tool Call 的结果特别大（比如搜了一篇长文），在它进入历史记录 3 轮后，可以考虑将其 content 替换为“已总结的摘要”，以腾出空间。
+
+   *. Message history, 用户聊天 历史记录完成
+   *. 长线任务
+   *. Subagent
+   *. MCP 
+   *. 更多skill
+   *. Sandbox environment
+
+         
+
+#. Message center 主要做 消息 中心的，将所有的消息 汇总分发 给不同的Agent，根据 binding关系，route消息。
+
+3. 

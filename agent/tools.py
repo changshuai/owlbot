@@ -333,6 +333,7 @@ TOOL_HANDLERS: dict[str, Any] = {
 
 
 def process_tool_call(name: str, inp: dict, tool_ctx: dict[str, Any] | None = None) -> str:
+    name = (name or "").strip()
     handler = TOOL_HANDLERS.get(name)
     if not handler:
         return f"Error: Unknown tool '{name}'"

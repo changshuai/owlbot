@@ -67,7 +67,7 @@ class Agent:
     def _build_memory_prompt(
         self, last_user_message: str = "", session_key: str = ""
     ) -> str:
-         # Memory auto-recall based on the latest user message
+        # Memory auto-recall based on the latest user message
         memory_store = get_memory_store(self.id)
         memory_context = ""
         if last_user_message:
@@ -91,8 +91,11 @@ class Agent:
                 sections.append("## Memory\n" + "\n".join(parts))
             sections.append(
                 "## Memory Instructions\n\n"
-                "- Use memory.write to save important user facts and preferences.\n"
-                "- Reference remembered facts naturally in conversation.\n"
+                "Save durable facts with `memory.write` or MEMORY.md (not the full chat log). "
+                "Older turns are often dropped after ~10–15+ rounds of chat; if nothing important was saved lately, write it now. "
+                "Write key points before long threads. Trimmed chat is archived on disk—not in `memory.search`. "
+                "Sections above are MEMORY.md + diary only; use `memory.search` for more. "
+                "Use recalled facts naturally.\n"
             )
         return sections
 
@@ -181,6 +184,8 @@ class AgentManager:
         self._agents: dict[str, Agent] = {}
         self._agents_base = agents_base or AGENTS_DIR
         self._sessions: dict[str, list[dict]] = {}
+        # Session-scoped ephemeral state (not persisted): extracted key variables, summaries, etc.
+        self._session_state: dict[str, dict[str, Any]] = {}
 
     def register(self, agent: Agent) -> None:
         aid = normalize_agent_id(agent.id)
@@ -196,10 +201,26 @@ class AgentManager:
     def list_agents(self) -> list[Agent]:
         return list(self._agents.values())
 
-    def get_session(self, session_key: str) -> list[dict]:
+    def get_session(self, session_key: str, agent_id: str = "") -> list[dict]:
         if session_key not in self._sessions:
-            self._sessions[session_key] = []
+            if agent_id:
+                from .session_store import load_chat_session
+
+                self._sessions[session_key] = load_chat_session(agent_id, session_key)
+            else:
+                self._sessions[session_key] = []
         return self._sessions[session_key]
+
+    def get_session_state(self, session_key: str) -> dict[str, Any]:
+        """
+        Get a mutable, session-scoped state dict.
+
+        This is intended for short-term working memory (key variables extracted from summaries,
+        artifact refs, counters) and is not persisted across process restarts.
+        """
+        if session_key not in self._session_state:
+            self._session_state[session_key] = {}
+        return self._session_state[session_key]
 
     def list_sessions(self, agent_id: str = "") -> dict[str, int]:
         aid = normalize_agent_id(agent_id) if agent_id else ""

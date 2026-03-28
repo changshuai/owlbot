@@ -1,1 +1,1 @@
-This is a test string for file operations.
+This is a test file for file operations.

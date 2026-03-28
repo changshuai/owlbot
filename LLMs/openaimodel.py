@@ -116,15 +116,34 @@ class OpenAIModel(Model):
         yield {"type": "start", "partial": dict(output)}
 
         try:
-            response_stream = await client.chat.completions.create(**kwargs)
+            try:
+                response_stream = await client.chat.completions.create(
+                    **kwargs, stream_options={"include_usage": True}
+                )
+            except TypeError:
+                response_stream = await client.chat.completions.create(**kwargs)
             content_index = 0
             current_text = ""
             tool_calls_acc: dict[int, dict[str, Any]] = {}
+            finalized = False
             async for chunk in response_stream:
                 if abort_signal is not None and getattr(abort_signal, "is_set", None) and abort_signal.is_set():
                     output["stopReason"] = "aborted"
                     yield {"type": "error", "reason": "aborted", "error": output}
                     return
+                usage_obj = getattr(chunk, "usage", None)
+                if usage_obj is not None:
+                    pt = getattr(usage_obj, "prompt_tokens", None)
+                    ct = getattr(usage_obj, "completion_tokens", None)
+                    tt = getattr(usage_obj, "total_tokens", None)
+                    if pt is not None:
+                        output["usage"]["input"] = int(pt)
+                    if ct is not None:
+                        output["usage"]["output"] = int(ct)
+                    if tt is not None:
+                        output["usage"]["totalTokens"] = int(tt)
+                    elif pt is not None and ct is not None:
+                        output["usage"]["totalTokens"] = int(pt) + int(ct)
                 if not chunk.choices:
                     continue
                 delta = chunk.choices[0].delta
@@ -150,22 +169,27 @@ class OpenAIModel(Model):
                             if tc.function.arguments:
                                 tool_calls_acc[idx]["arguments"] += tc.function.arguments
                 if chunk.choices[0].finish_reason:
-                    reason = chunk.choices[0].finish_reason
-                    output["stopReason"] = "toolUse" if reason == "tool_calls" else "stop"
-                    if tool_calls_acc:
-                        for idx in sorted(tool_calls_acc):
-                            t = tool_calls_acc[idx]
-                            args_str = t.get("arguments") or "{}"
-                            try:
-                                args = json.loads(args_str)
-                            except json.JSONDecodeError:
-                                args = {}
-                            output["content"].append({
-                                "type": "toolCall",
-                                "id": t.get("id") or f"call_{idx}",
-                                "name": t.get("name") or "",
-                                "arguments": args,
-                            })
+                    if not finalized:
+                        finalized = True
+                        reason = chunk.choices[0].finish_reason
+                        output["stopReason"] = "toolUse" if reason == "tool_calls" else "stop"
+                        if tool_calls_acc:
+                            if "content" not in output or not isinstance(output.get("content"), list):
+                                output["content"] = []
+                            for idx in sorted(tool_calls_acc):
+                                t = tool_calls_acc[idx]
+                                args_str = t.get("arguments") or "{}"
+                                try:
+                                    args = json.loads(args_str)
+                                except json.JSONDecodeError:
+                                    args = {}
+                                output["content"].append({
+                                    "type": "toolCall",
+                                    "id": t.get("id") or f"call_{idx}",
+                                    "name": t.get("name") or "",
+                                    "arguments": args,
+                                })
+                    continue
             yield {"type": "done", "reason": output.get("stopReason", "stop"), "message": output}
         except Exception as e:
             output["stopReason"] = "error"
