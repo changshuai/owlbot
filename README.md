@@ -3,8 +3,6 @@
 **Multi-channel personal AI assistant (Python).**  
 Connects LLMs to **sessions**, **tools**, **bootstrap files**, and **memory**; routes inbound messages to the right **agent** via bindings.
 
-*(Same content as `README.md` — use `.md` on GitHub for rendered tables.)*
-
 ### Why this repo exists (learning project)
 
 Owlbot is intentionally a **learning-oriented** codebase: the primary aim is to **follow and internalize current agent techniques**—tool-use loops, long-context handling, memory, routing across channels, and related patterns—and to **implement them in a runnable system**. Progress is measured both by **what works in practice** and by **what you learn building it**, not only by feature completeness.
@@ -96,12 +94,3 @@ workspace/   # default workspace, runtime_config.json, per-agent workspaces
 LLMs/        # model providers & streaming
 docs/        # e.g. context-compaction.md
 ```
-
----
-
-## Related docs
-
-| File | Content |
-|------|---------|
-| **`Design.txt`** | Product/design backlog and session/context/memory notes |
-| **`docs/context-compaction.md`** | Tool shrink & history trim env vars |
