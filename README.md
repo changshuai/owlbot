@@ -1,7 +1,7 @@
 # Owlbot
 
 **Multi-channel personal AI assistant (Python).**  
-Connects LLMs to **sessions**, **tools**, **bootstrap files**, and **memory**; routes inbound messages to the right **agent** via bindings.
+Connects llms to **sessions**, **tools**, **bootstrap files**, and **memory**; routes inbound messages to the right **agent** via bindings.
 
 ### Why this repo exists (learning project)
 
@@ -113,6 +113,6 @@ message/     # routing, message center, gateway
 channels/    # channel implementations
 config/      # runtime config loader
 workspace/   # default workspace, runtime_config.json, per-agent workspaces
-LLMs/        # model providers & streaming
+llms/        # model providers & streaming
 docs/        # e.g. context-compaction.md
 ```

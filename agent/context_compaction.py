@@ -11,7 +11,7 @@ import os
 import time
 from typing import Any
 
-from LLMs import Context, get_env_api_key, get_model
+from llms import Context, get_env_api_key, get_model
 from .message_validator import extract_text_from_message, validate_session_messages
 
 from common.colors import RESET, YELLOW

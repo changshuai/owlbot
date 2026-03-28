@@ -11,7 +11,7 @@ _src = Path(__file__).resolve().parent.parent
 if _src not in sys.path:
     sys.path.insert(0, str(_src))
 
-from LLMs import Context, get_env_api_key, get_model
+from llms import Context, get_env_api_key, get_model
 
 
 async def main() -> None:

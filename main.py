@@ -5,7 +5,7 @@ from message.route_ import BindingTable, AgentManager
 from common.colors import DIM, RESET, BOLD, CYAN, GREEN, YELLOW, MAGENTA, BLUE, RED
 from message.route_ import setup_demo
 from agent.agent_loop import run_agent
-from LLMs import get_env_api_key
+from llms import get_env_api_key
 from message.route_ import resolve_route
 from agent.agent_loop import MODEL_PROVIDER, MODEL_ID
 from message.gateway import GatewayServer

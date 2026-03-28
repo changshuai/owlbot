@@ -6,7 +6,7 @@ import unittest
 from typing import Any
 from unittest.mock import AsyncMock, MagicMock, patch
 
-from LLMs.modelbase import make_empty_assistant_message
+from llms.modelbase import make_empty_assistant_message
 
 from agent import context_compaction as cc
 
