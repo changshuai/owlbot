@@ -9,6 +9,8 @@ from typing import Any
 
 from common.paths import WORKSPACE_DIR, get_agent_workspace
 
+from agent import memory_semantic
+
 class MemoryStore:
     """
     Per-agent memory store.
@@ -16,7 +18,9 @@ class MemoryStore:
     - Evergreen facts: MEMORY.md in the agent workspace root.
     - Session-scoped logs: memory/<session_key>/YYYY-MM-DD.jsonl
     - Context trim snapshots: memory/<session_key>/context_archive_<ts>.jsonl (excluded from hybrid search)
-    - Hybrid search: keyword TF-IDF + hash-based vector, temporal decay, MMR.
+    - Hybrid search: keyword TF-IDF + vector leg (semantic if MEMORY_EMBEDDING_MODEL
+      is set and sentence-transformers works; else hash-based pseudo-embeddings),
+      temporal decay, MMR.
     """
 
     def __init__(self, workspace_dir: Path) -> None:
@@ -256,6 +260,52 @@ class MemoryStore:
         scored.sort(key=lambda x: x["score"], reverse=True)
         return scored[:top_k]
 
+    def _embedding_vector_search(
+        self,
+        encoder: Any,
+        query: str,
+        chunks: list[dict[str, str]],
+        session_key: str,
+        top_k: int = 10,
+    ) -> list[dict[str, Any]]:
+        """Cosine similarity via normalized embeddings; cached per session under memory/."""
+        try:
+            import numpy as np
+        except ImportError:
+            return self._vector_search(query, chunks, top_k=top_k)
+
+        session_dir = self._session_memory_dir(session_key)
+        cache_path = session_dir / ".owlbot_semantic.npz"
+        hashes = memory_semantic.chunk_content_hashes(chunks)
+        vecs = memory_semantic.load_cached_embeddings(cache_path, hashes)
+        texts = [c["text"] for c in chunks]
+        if vecs is None and texts:
+            raw = encoder.encode(
+                texts, normalize_embeddings=True, show_progress_bar=False
+            )
+            vecs = np.asarray(raw, dtype=np.float32)
+            try:
+                memory_semantic.save_embeddings(cache_path, hashes, vecs)
+            except Exception:
+                pass
+        elif vecs is None:
+            return []
+
+        q_raw = encoder.encode(
+            [query], normalize_embeddings=True, show_progress_bar=False
+        )
+        q = np.asarray(q_raw[0], dtype=np.float32)
+        sims = vecs @ q
+        order = np.argsort(-sims)[:top_k]
+        scored: list[dict[str, Any]] = []
+        for i in order:
+            idx = int(i)
+            s = float(sims[idx])
+            if s > 0.0:
+                scored.append({"chunk": chunks[idx], "score": s})
+        scored.sort(key=lambda x: x["score"], reverse=True)
+        return scored
+
     @staticmethod
     def _merge_hybrid_results(
         vector_results: list[dict[str, Any]],
@@ -285,7 +335,7 @@ class MemoryStore:
         for r in results:
             path = r["chunk"].get("path", "")
             age_days = 0.0
-            date_match = re.search(r"(\d{4}-\d{2}-\d2)", path)
+            date_match = re.search(r"(\d{4}-\d{2}-\d{2})", path)
             if date_match:
                 try:
                     chunk_date = datetime.strptime(
@@ -336,7 +386,16 @@ class MemoryStore:
         if not chunks:
             return []
         keyword_results = self._keyword_search(query, chunks, top_k=10)
-        vector_results = self._vector_search(query, chunks, top_k=10)
+        encoder, _ = memory_semantic.get_sentence_encoder()
+        if encoder is not None:
+            try:
+                vector_results = self._embedding_vector_search(
+                    encoder, query, chunks, session_key, top_k=10
+                )
+            except Exception:
+                vector_results = self._vector_search(query, chunks, top_k=10)
+        else:
+            vector_results = self._vector_search(query, chunks, top_k=10)
         merged = self._merge_hybrid_results(vector_results, keyword_results)
         decayed = self._temporal_decay(merged)
         reranked = self._mmr_rerank(decayed)

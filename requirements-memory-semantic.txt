@@ -1,0 +1,4 @@
+# Optional: semantic memory search (MEMORY_EMBEDDING_MODEL).
+# Example: export MEMORY_EMBEDDING_MODEL=paraphrase-multilingual-MiniLM-L12-v2
+numpy>=1.24
+sentence-transformers>=2.2.0
