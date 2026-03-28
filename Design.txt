@@ -1,3 +1,10 @@
+# Owlbot — Design / backlog (living notes)
+
+- **Release:** v0.1 — agent core path works; validated on **CLI + WhatsApp** only (`python main.py`). Other channels unverified.
+- **Lineage:** Learned from / improved vs. **OpenClaw** (see README); this repo is independent Python.
+- **After 0.1:** Remaining items below (`*. …`) and sections 1–5 are the ongoing checklist; README points here for roadmap.
+
+---
 
 #。 
 #. Agent 是什么
@@ -47,9 +54,9 @@
    *. Message history, 用户聊天 历史记录完成
    *. 长线任务
    *. Subagent
-   *. MCP 
-   *. 更多skill
-   *. Sandbox environment
+   *. MCP：
+   *. 更多skill：
+   *. Sandbox environment: 很多用户 使用agent写代码，他们不想知道如何运行代码，而直接想要输出结果，所以我们需要做一套环境，用户想要的脚本，可以直接执行出来结果，而不是给用户看代码。
 
          
 
